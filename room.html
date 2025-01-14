@@ -1,0 +1,968 @@
+<!-- room.html -->
+
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interpify Room</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    :root[data-theme="light"] {
+      --bg-color: #ffffff;
+      --text-color: #333333;
+      --border-color: #cccccc;
+      --room-info-bg: #f5f5f5;
+      --button-bg: #4a90e2;
+      --button-text: white;
+      --error-color: #ff4444;
+      --success-color: #4caf50;
+      --code-bg: #ffffff;
+    }
+
+    :root[data-theme="dark"] {
+      --bg-color: #1a1a1a;
+      --text-color: #ffffff;
+      --border-color: #444444;
+      --room-info-bg: #2d2d2d;
+      --button-bg: #2d5a9e;
+      --button-text: white;
+      --error-color: #ff6b6b;
+      --success-color: #66bb6a;
+      --code-bg: #333333;
+    }
+
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      transition: all 0.3s ease;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    .transcriptionBox {
+      border: 1px solid var(--border-color);
+      padding: 15px;
+      margin: 10px 0;
+      height: 400px;
+      overflow-y: auto;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 10px;
+    }
+
+    .message {
+      max-width: 80%;
+      padding: 10px;
+      border-radius: 12px;
+      margin: 5px 0;
+      word-wrap: break-word;
+    }
+
+    .message.sent {
+      align-self: flex-end;
+      background-color: var(--button-bg);
+      color: var(--button-text);
+      border-bottom-right-radius: 4px;
+    }
+
+    .message.received {
+      align-self: flex-start;
+      background-color: var(--room-info-bg);
+      border-bottom-left-radius: 4px;
+    }
+
+    .message .username {
+      font-size: 0.8em;
+      opacity: 0.8;
+      margin-bottom: 4px;
+    }
+
+    .message .timestamp {
+      font-size: 0.7em;
+      opacity: 0.6;
+      margin-top: 4px;
+      text-align: right;
+    }
+
+    .talk-button {
+      width: 100%;
+      padding: 15px;
+      margin-top: 10px;
+      font-size: 1.1em;
+      background-color: var(--button-bg);
+      color: var(--button-text);
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      user-select: none;
+      touch-action: manipulation;
+    }
+
+    .talk-button:active, .talk-button.active {
+      transform: scale(0.98);
+      background-color: var(--success-color);
+    }
+
+    .talk-button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .talk-hint {
+      text-align: center;
+      font-size: 0.9em;
+      opacity: 0.8;
+      margin-top: 5px;
+    }
+
+    .error {
+      color: var(--error-color);
+      margin: 10px 0;
+    }
+
+    .status {
+      color: var(--success-color);
+      margin: 10px 0;
+    }
+
+    .controls {
+      margin-top: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    button {
+      padding: 8px 16px;
+      background-color: var(--button-bg);
+      color: var(--button-text);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: opacity 0.3s;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button:hover:not(:disabled) {
+      opacity: 0.9;
+    }
+
+    input, select {
+      padding: 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+    }
+
+    .room-info {
+      background: var(--room-info-bg);
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .room-id {
+      font-size: 1.2em;
+      margin-bottom: 20px;
+      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .room-id code {
+      background: var(--code-bg);
+      padding: 5px 10px;
+      border-radius: 3px;
+      border: 1px solid var(--border-color);
+      cursor: pointer;
+    }
+
+    .share-link {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.9em;
+      margin-top: 5px;
+    }
+
+    .share-link input {
+      padding: 5px 10px;
+      border: 1px solid var(--border-color);
+      border-radius: 3px;
+      background: var(--code-bg);
+      color: var(--text-color);
+      width: 250px;
+      font-size: 0.9em;
+    }
+
+    .copy-button {
+      padding: 5px 10px;
+      background: var(--button-bg);
+      color: var(--button-text);
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 0.9em;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .copy-button:hover {
+      opacity: 0.9;
+    }
+
+    .copy-button.copied {
+      background: var(--success-color);
+    }
+
+    .participants {
+      margin-top: 10px;
+    }
+
+    .participants-list {
+      list-style: none;
+      padding: 0;
+      margin: 5px 0;
+    }
+
+    .participants-list li {
+      padding: 5px 0;
+    }
+
+    .copy-tooltip {
+      display: none;
+      position: absolute;
+      background: #333;
+      color: white;
+      padding: 5px 10px;
+      border-radius: 3px;
+      font-size: 0.8em;
+    }
+
+    .theme-toggle {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 8px;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--button-bg);
+      cursor: pointer;
+      border: none;
+    }
+
+    @media (max-width: 600px) {
+      .controls {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      
+      .container {
+        padding: 10px;
+      }
+      
+      .room-info {
+        padding: 15px;
+      }
+    }
+
+    .translation-container {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      margin: 10px 0;
+    }
+
+    .translation-container p {
+      margin: 0;
+    }
+
+    .play-translation {
+      align-self: flex-start;
+      padding: 4px 8px;
+      font-size: 0.9em;
+      background-color: var(--button-bg);
+      color: var(--button-text);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: opacity 0.3s;
+    }
+
+    .play-translation:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .play-translation:hover:not(:disabled) {
+      opacity: 0.9;
+    }
+
+    .ios-audio-hint {
+      font-size: 0.8em;
+      color: var(--text-color);
+      opacity: 0.8;
+      margin-top: 4px;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <button class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode">
+    🌓
+  </button>
+
+  <div class="container">
+    <h1 style="text-align: center;">Interpify Room</h1>
+
+    <div class="room-info">
+      <div class="room-id">
+        Room ID: <code id="roomIdDisplay" title="Click to copy">Loading...</code>
+        <div class="share-link">
+          <input type="text" id="shareLink" readonly>
+          <button id="copyShareLink" class="copy-button">
+            📋 Copy Link
+          </button>
+        </div>
+      </div>
+      <div class="participants">
+        <h3>Participants:</h3>
+        <ul class="participants-list" id="participantsList">
+          <li>Waiting for participants...</li>
+        </ul>
+      </div>
+    </div>
+    
+    <div class="controls">
+      <label>Username: <input type="text" id="username"></label>
+      <label>Language: 
+        <select id="language">
+          <option value="en">English</option>
+          <option value="es">Español (Spanish)</option>
+          <option value="fr">Français (French)</option>
+          <option value="de">Deutsch (German)</option>
+          <option value="it">Italiano (Italian)</option>
+          <option value="pt">Português (Portuguese)</option>
+          <option value="ru">Русский (Russian)</option>
+          <option value="ja">日本語 (Japanese)</option>
+          <option value="ko">한국어 (Korean)</option>
+          <option value="zh">中文 (Chinese)</option>
+        </select>
+      </label>
+      <button id="joinBtn">Join Room</button>
+    </div>
+
+    <div id="status" class="status"></div>
+    <div id="error" class="error"></div>
+    <div id="transcriptionBox"></div>
+    
+    <button id="talkBtn" class="talk-button" disabled>
+      Press and hold to talk
+    </button>
+    <div class="talk-hint">
+      You can also hold the spacebar to talk
+    </div>
+  </div>
+
+  <script>
+    // Helper functions
+    function base64ToBlob(base64, mimeType) {
+      try {
+        const byteCharacters = atob(base64);
+        const byteNumbers = new Array(byteCharacters.length);
+        for (let i = 0; i < byteCharacters.length; i++) {
+          byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        const byteArray = new Uint8Array(byteNumbers);
+        return new Blob([byteArray], { type: mimeType });
+      } catch (error) {
+        console.error('Error in base64ToBlob:', error);
+        throw new Error('Failed to convert audio data');
+      }
+    }
+
+    let audioContext;
+    let mediaStream;
+    let scriptNode;
+    let mediaRecorder;
+    let socket;
+    let isSpeaking = false;
+    let silenceStartTime = 0;
+    let speakingThreshold = 0.01;
+    let silenceDelay = 1000;
+    let reconnectAttempts = 0;
+    let recordedChunks = [];
+    const maxReconnectAttempts = 5;
+
+    // Room elements
+    const joinBtn = document.getElementById('joinBtn');
+    const talkBtn = document.getElementById('talkBtn');
+    const transcriptionBox = document.getElementById('transcriptionBox');
+    const statusDiv = document.getElementById('status');
+    const errorDiv = document.getElementById('error');
+
+    // Get room ID from URL parameters and display it
+    const urlParams = new URLSearchParams(window.location.search);
+    const roomId = urlParams.get('roomId');
+    const roomIdDisplay = document.getElementById('roomIdDisplay');
+    const copyTooltip = document.getElementById('copyTooltip');
+    const participantsList = document.getElementById('participantsList');
+    const shareLink = document.getElementById('shareLink');
+    const copyShareLink = document.getElementById('copyShareLink');
+    
+    if (!roomId) {
+      errorDiv.textContent = 'Invalid room ID. Please create or join a room from the homepage.';
+      joinBtn.disabled = true;
+    } else {
+      roomIdDisplay.textContent = roomId;
+      // Set the share link
+      shareLink.value = `${window.location.origin}/room.html?roomId=${roomId}`;
+    }
+
+    // Add click-to-copy functionality for share link
+    copyShareLink.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(shareLink.value);
+        copyShareLink.textContent = '✓ Copied!';
+        copyShareLink.classList.add('copied');
+        setTimeout(() => {
+          copyShareLink.textContent = '📋 Copy Link';
+          copyShareLink.classList.remove('copied');
+        }, 2000);
+      } catch (err) {
+        console.error('Failed to copy share link:', err);
+        errorDiv.textContent = 'Failed to copy link to clipboard';
+      }
+    });
+
+    function updateParticipantsList(participants) {
+      if (!participants || participants.length === 0) {
+        participantsList.innerHTML = '<li>No participants yet</li>';
+        return;
+      }
+      participantsList.innerHTML = participants
+        .map(username => `<li>${username}</li>`)
+        .join('');
+    }
+
+    // Initialize socket
+    function initializeSocket() {
+      socket = io({
+        reconnection: true,
+        reconnectionAttempts: maxReconnectAttempts,
+        reconnectionDelay: 1000,
+        timeout: 10000,
+        // Cloudflare-specific settings
+        transports: ['websocket', 'polling'],
+        upgrade: true,
+        rememberUpgrade: true,
+        secure: true,
+        rejectUnauthorized: true,
+        // Adjust timeouts to match server
+        pingInterval: 20000,
+        pingTimeout: 5000
+      });
+
+      setupSocketListeners();
+    }
+
+    function setupSocketListeners() {
+      socket.on('connect_error', (error) => {
+        errorDiv.textContent = 'Connection error. Please try again.';
+        console.error('Socket connection error:', error);
+      });
+
+      socket.on('disconnect', (reason) => {
+        statusDiv.textContent = 'Disconnected from server. Attempting to reconnect...';
+        if (reason === 'io server disconnect') {
+          socket.connect();
+        }
+      });
+
+      socket.on('reconnect_attempt', () => {
+        reconnectAttempts++;
+        statusDiv.textContent = `Reconnection attempt ${reconnectAttempts}/${maxReconnectAttempts}...`;
+      });
+
+      socket.on('reconnect', () => {
+        reconnectAttempts = 0;
+        statusDiv.textContent = 'Reconnected successfully';
+        // Rejoin room after reconnection
+        if (roomId) {
+          joinRoom();
+        }
+      });
+
+      socket.on('reconnect_failed', () => {
+        errorDiv.textContent = 'Failed to reconnect. Please refresh the page.';
+      });
+
+      socket.on('userTranscribedText', ({ username, text }) => {
+        addMessage(username, text, 'sent');
+      });
+
+      socket.on('transcription', ({ username, message, isOriginal }) => {
+        // Show original message as sent by the speaker
+        addMessage(username, message, 'sent', null, null, isOriginal);
+      });
+
+      socket.on('translatedAudio', ({ username, text, audio, isTranslation }) => {
+        try {
+          console.log('Received translated audio:', {
+            username,
+            textLength: text?.length,
+            audioLength: audio?.length,
+            isTranslation
+          });
+
+          // Add message first
+          addMessage(username, text, false, true, audio);
+          
+          // Check if we're on iOS
+          const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+          
+          if (!isIOS) {
+            // For non-iOS devices, attempt autoplay
+            if (!audio) {
+              throw new Error('No audio data received');
+            }
+
+            try {
+              const audioBlob = base64ToBlob(audio, 'audio/mp3');
+              console.log('Created audio blob:', {
+                size: audioBlob.size,
+                type: audioBlob.type
+              });
+
+              const audioUrl = URL.createObjectURL(audioBlob);
+              const audioElement = new Audio(audioUrl);
+              
+              audioElement.onerror = (e) => {
+                console.error('Audio element error:', e);
+                throw new Error('Failed to load audio');
+              };
+
+              audioElement.play().catch(error => {
+                console.error('Error autoplaying audio:', error);
+                // Autoplay failed, button is already added by addMessage
+              });
+            } catch (error) {
+              console.error('Error creating audio blob:', error);
+              throw error;
+            }
+          }
+          // For iOS devices, rely on the play button added by addMessage
+          
+        } catch (error) {
+          console.error('Error processing translated audio:', {
+            error: error.message,
+            stack: error.stack,
+            audioPresent: !!audio,
+            textPresent: !!text
+          });
+          errorDiv.textContent = 'Error processing translated audio: ' + error.message;
+        }
+      });
+
+      socket.on('errorMessage', ({ message }) => {
+        errorDiv.textContent = `Error: ${message}`;
+      });
+
+      socket.on('status', ({ message }) => {
+        statusDiv.textContent = message;
+      });
+
+      socket.on('updateUserList', (users) => {
+        updateParticipantsList(users);
+      });
+    }
+
+    async function joinRoom() {
+      const username = document.getElementById('username').value || 'Anonymous';
+      const language = document.getElementById('language').value;
+      
+      // Create a shared audio context and request user interaction
+      if (!audioContext) {
+        audioContext = new AudioContext({
+          latencyHint: 'interactive'
+        });
+      }
+
+      socket.emit('joinRoom', { roomId, username, language }, async (success) => {
+        if (success) {
+          try {
+            await audioContext.resume();
+            
+            // Request microphone permissions immediately after joining
+            try {
+              mediaStream = await navigator.mediaDevices.getUserMedia({ 
+                audio: {
+                  echoCancellation: true,
+                  noiseSuppression: true,
+                  autoGainControl: true,
+                  channelCount: 1,
+                  sampleRate: audioContext.sampleRate
+                }
+              });
+              statusDiv.textContent = `Joined room successfully as ${username}. Microphone ready.`;
+              talkBtn.disabled = false;
+            } catch (micError) {
+              console.error('Microphone permission error:', micError);
+              statusDiv.textContent = `Joined room as ${username}, but microphone access was denied.`;
+              errorDiv.textContent = 'Please allow microphone access to use the talk feature.';
+              talkBtn.disabled = true;
+            }
+            
+            joinBtn.disabled = true; // Disable join button after successful join
+          } catch (error) {
+            console.error('Could not initialize audio:', error);
+            errorDiv.textContent = 'Could not initialize audio system.';
+          }
+        } else {
+          errorDiv.textContent = 'Failed to join room. Room might be full or invalid.';
+        }
+      });
+    }
+
+    let isRecording = false;
+
+    // Handle push-to-talk button
+    talkBtn.addEventListener('mousedown', startRecording);
+    talkBtn.addEventListener('mouseup', stopRecording);
+    talkBtn.addEventListener('mouseleave', stopRecording);
+    talkBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      startRecording();
+    });
+    talkBtn.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      stopRecording();
+    });
+
+    // Handle spacebar
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && !isRecording && !e.repeat && document.activeElement.tagName !== 'INPUT') {
+        e.preventDefault();
+        startRecording();
+      }
+    });
+    document.addEventListener('keyup', (e) => {
+      if (e.code === 'Space' && isRecording) {
+        e.preventDefault();
+        stopRecording();
+      }
+    });
+
+    async function startRecording() {
+      if (!socket || !audioContext || isRecording || talkBtn.disabled) return;
+      
+      try {
+        isRecording = true;
+        talkBtn.classList.add('active');
+        
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        console.log('Device detection - isIOS:', isIOS);
+        console.log('User Agent:', navigator.userAgent);
+        console.log('Platform:', navigator.platform);
+        
+        // Only request media stream if we don't have it yet
+        if (!mediaStream) {
+          try {
+            const contextSampleRate = audioContext.sampleRate;
+            console.log('Audio Context Sample Rate:', contextSampleRate);
+            
+            const constraints = {
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+                channelCount: 1,
+                sampleRate: contextSampleRate
+              }
+            };
+            console.log('Requesting media with constraints:', JSON.stringify(constraints));
+            
+            mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+            const track = mediaStream.getAudioTracks()[0];
+            console.log('Audio track settings:', track.getSettings());
+            console.log('Audio track constraints:', track.getConstraints());
+          } catch (micError) {
+            console.error('Detailed microphone error:', micError);
+            throw new Error('Microphone access is required. Please allow microphone access and try again.');
+          }
+        }
+
+        // Log supported MIME types
+        console.log('Supported MIME types:');
+        ['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/wav'].forEach(mimeType => {
+          console.log(`${mimeType}: ${MediaRecorder.isTypeSupported(mimeType)}`);
+        });
+
+        // Create new MediaRecorder instance each time
+        let mimeType = 'audio/webm';
+        
+        // iOS typically supports mp4
+        if (isIOS) {
+          if (MediaRecorder.isTypeSupported('audio/mp4')) {
+            mimeType = 'audio/mp4';
+          } else {
+            console.log('iOS device does not support audio/mp4, trying alternatives...');
+            if (MediaRecorder.isTypeSupported('audio/webm')) {
+              mimeType = 'audio/webm';
+            } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+              mimeType = 'audio/ogg';
+            }
+          }
+        } else {
+          // For non-iOS devices, prefer webm
+          if (MediaRecorder.isTypeSupported('audio/webm')) {
+            mimeType = 'audio/webm';
+          } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+            mimeType = 'audio/mp4';
+          } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+            mimeType = 'audio/ogg';
+          }
+        }
+
+        console.log(`Selected MIME type: ${mimeType}`);
+
+        const mediaRecorderOptions = {
+          mimeType: mimeType,
+          audioBitsPerSecond: audioContext.sampleRate
+        };
+        console.log('MediaRecorder options:', mediaRecorderOptions);
+
+        try {
+          mediaRecorder = new MediaRecorder(mediaStream, mediaRecorderOptions);
+          console.log('MediaRecorder created with settings:', {
+            mimeType: mediaRecorder.mimeType,
+            state: mediaRecorder.state,
+            audioBitsPerSecond: mediaRecorder.audioBitsPerSecond
+          });
+        } catch (e) {
+          console.error('Detailed MediaRecorder error:', e);
+          console.log('Falling back to default MediaRecorder settings');
+          mediaRecorder = new MediaRecorder(mediaStream);
+          console.log('Fallback MediaRecorder created with settings:', {
+            mimeType: mediaRecorder.mimeType,
+            state: mediaRecorder.state
+          });
+        }
+
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) {
+            console.log(`Recorded chunk details:`, {
+              size: e.data.size,
+              type: e.data.type,
+              timestamp: new Date().toISOString()
+            });
+            recordedChunks.push(e.data);
+          }
+        };
+
+        recordedChunks = [];
+        mediaRecorder.start();
+        console.log('MediaRecorder started:', {
+          state: mediaRecorder.state,
+          timeStamp: new Date().toISOString()
+        });
+        statusDiv.textContent = 'Recording...';
+
+      } catch (err) {
+        console.error('Detailed recording error:', err);
+        errorDiv.textContent = `Error starting recording: ${err.message}`;
+        isRecording = false;
+        talkBtn.classList.remove('active');
+      }
+    }
+
+    function stopRecording() {
+      if (!isRecording) return;
+      
+      console.log('Stopping recording...');
+      isRecording = false;
+      talkBtn.classList.remove('active');
+      talkBtn.disabled = true;
+      statusDiv.textContent = 'Processing audio...';
+      
+      try {
+        if (mediaRecorder && mediaRecorder.state === 'recording') {
+          mediaRecorder.onstop = () => {
+            console.log('MediaRecorder stopped, processing chunks...');
+            if (recordedChunks.length > 0 && socket) {
+              console.log('Processing recorded chunks:', {
+                numberOfChunks: recordedChunks.length,
+                totalSize: recordedChunks.reduce((acc, chunk) => acc + chunk.size, 0),
+                mimeType: mediaRecorder.mimeType
+              });
+              
+              const finalBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType });
+              console.log('Created final blob:', {
+                size: finalBlob.size,
+                type: finalBlob.type
+              });
+              
+              const reader = new FileReader();
+              reader.onload = (e) => {
+                const base64Data = e.target.result.split(',')[1];
+                console.log('Converted to base64:', {
+                  dataLength: base64Data.length,
+                  sampleStart: base64Data.substring(0, 50) + '...'
+                });
+                
+                socket.emit('audioData', { 
+                  roomId, 
+                  audioData: base64Data,
+                  isSpeaking: false 
+                });
+                statusDiv.textContent = 'Recording sent';
+                talkBtn.disabled = false;
+              };
+              reader.onerror = () => {
+                console.error('FileReader error:', {
+                  error: reader.error,
+                  errorCode: reader.error.code,
+                  errorMessage: reader.error.message
+                });
+                errorDiv.textContent = 'Error processing recording';
+                statusDiv.textContent = '';
+                talkBtn.disabled = false;
+              };
+              reader.readAsDataURL(finalBlob);
+              recordedChunks = [];
+            } else {
+              console.log('No audio data to process');
+              statusDiv.textContent = 'No audio recorded';
+              talkBtn.disabled = false;
+            }
+          };
+          
+          mediaRecorder.stop();
+          console.log('Initiated MediaRecorder stop');
+        } else {
+          console.log('MediaRecorder not in recording state:', mediaRecorder?.state);
+          statusDiv.textContent = 'Recording stopped';
+          talkBtn.disabled = false;
+        }
+      } catch (err) {
+        console.error('Error in stopRecording:', {
+          error: err,
+          message: err.message,
+          stack: err.stack
+        });
+        errorDiv.textContent = `Error stopping recording: ${err.message}`;
+        statusDiv.textContent = '';
+        talkBtn.disabled = false;
+      }
+    }
+
+    function addMessage(username, text, isOriginal = false, isTranslation = false, audio = null) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${isOriginal ? 'sent' : 'received'}`;
+      
+      const timestamp = new Date().toLocaleTimeString();
+      
+      messageDiv.innerHTML = `
+        <div class="message-header">
+          <span class="username">${username}</span>
+          <span class="timestamp">${timestamp}</span>
+        </div>
+        <div class="message-content">
+          <p>${text}</p>
+          ${audio ? `<button class="play-audio">Play Translation</button>` : ''}
+        </div>
+      `;
+
+      const transcriptionBox = document.getElementById('transcriptionBox');
+      if (!transcriptionBox) {
+        console.error('Could not find transcriptionBox element');
+        return;
+      }
+      
+      transcriptionBox.insertBefore(messageDiv, transcriptionBox.firstChild); // Insert at top
+
+      if (audio) {
+        const playButton = messageDiv.querySelector('.play-audio');
+        playButton.addEventListener('click', () => {
+          const audioData = audio;
+          const audioBlob = base64ToBlob(audioData, 'audio/mp3');
+          const audioUrl = URL.createObjectURL(audioBlob);
+          const audioElement = new Audio(audioUrl);
+          audioElement.play().catch(error => {
+            console.error('Error playing audio:', error);
+          });
+        });
+      }
+
+      // Auto-scroll to top for new messages
+      transcriptionBox.scrollTop = 0;
+
+      // Clean up old messages if there are too many (optional)
+      const maxMessages = 100; // Adjust this value as needed
+      const messages = transcriptionBox.getElementsByClassName('message');
+      if (messages.length > maxMessages) {
+        transcriptionBox.removeChild(messages[messages.length - 1]);
+      }
+    }
+
+    // Add this at the start of your script section
+    const themeToggle = document.getElementById('themeToggle');
+    
+    // Check for saved theme preference or default to light
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+
+    themeToggle.addEventListener('click', () => {
+      const currentTheme = document.documentElement.getAttribute('data-theme');
+      const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+      
+      document.documentElement.setAttribute('data-theme', newTheme);
+      localStorage.setItem('theme', newTheme);
+    });
+
+    // Add this after the socket event listeners setup
+    joinBtn.addEventListener('click', () => {
+      if (!socket) {
+        initializeSocket();
+      }
+      joinRoom();
+    });
+  </script>
+</body>
+</html>
