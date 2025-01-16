@@ -84,7 +84,14 @@ Access the application at `http://localhost:3000`
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details. This means:
+
+- You can freely use, modify, and distribute this software
+- If you distribute modified versions, you must:
+  - Make your source code available
+  - License it under the same GPLv3 terms
+  - State your modifications
+- No warranty is provided
 
 ## Author
 

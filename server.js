@@ -1,3 +1,21 @@
+/*
+    Interpify - Real-time voice translation platform
+    Copyright (C) 2024  Joshua Covelli (absolem)
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
 // server.js
 
 import 'dotenv/config';
@@ -138,7 +156,6 @@ app.post('/create-room', (req, res) => {
   const remainingChars = Math.random().toString(36).substring(2, 7); // 5 chars
   const roomId = `${firstNumber}${remainingChars}`;
   rooms[roomId] = { users: [] };
-  console.log(`Room created via HTTP: ${roomId}`);
   res.json({ roomId });
 });
 
@@ -308,9 +325,8 @@ io.on('connection', (socket) => {
   }
 
   async function processAudioData(roomId, socket, base64AudioData) {
-    console.log(`Processing audio data for room ${roomId}...`);
-    let tempFilePath;
-    let wavFilePath;
+    let tempFilePath = null;
+    let wavFilePath = null;
 
     try {
       console.log('Decoding base64 audio data:', {
@@ -382,40 +398,14 @@ io.on('connection', (socket) => {
         throw new Error('Could not find sender or receiver in room. Make sure there are two users in the room.');
       }
 
-      console.log('Translation participants:', {
-        sender: {
-          username: sender.username,
-          language: sender.language,
-          socketId: sender.socketId
-        },
-        receiver: {
-          username: receiver.username,
-          language: receiver.language,
-          socketId: receiver.socketId
-        }
-      });
-
       // Transcribe audio using converted WAV file
-      console.log('Starting transcription with Whisper...');
       const transcription = await openai.audio.transcriptions.create({
         file: fs.createReadStream(wavFilePath),
         model: 'whisper-1',
         language: sender.language,
         response_format: 'text',
       }).catch(error => {
-        console.error('Transcription error details:', {
-          error: error.message,
-          status: error.status,
-          type: error.type,
-          code: error.code
-        });
         throw new Error(`Transcription failed: ${error.message}`);
-      });
-
-      console.log('Transcription result:', {
-        text: transcription,
-        length: transcription?.length,
-        language: sender.language
       });
 
       if (!transcription || !transcription.trim()) {
@@ -423,8 +413,6 @@ io.on('connection', (socket) => {
       }
 
       // Translate text
-      console.log(`Starting translation from ${LANGUAGE_NAMES[sender.language]} to ${LANGUAGE_NAMES[receiver.language]}`);
-      
       const translationResponse = await openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [
@@ -442,34 +430,15 @@ Provide ONLY the translation without any explanations or notes.`,
         ],
         temperature: 0.3,
       }).catch(error => {
-        console.error('Translation error details:', {
-          error: error.message,
-          status: error.status,
-          type: error.type,
-          code: error.code
-        });
         throw new Error(`Translation failed: ${error.message}`);
       });
 
       const translatedText = translationResponse.choices[0].message.content.trim();
-      console.log('Translation result:', {
-        originalText: transcription,
-        translatedText,
-        fromLanguage: sender.language,
-        toLanguage: receiver.language
-      });
-
       if (!translatedText) {
         throw new Error('Translation returned empty text.');
       }
 
       // Generate speech from translated text
-      console.log('Starting speech generation:', {
-        text: translatedText,
-        voice: LANGUAGE_TO_VOICE[receiver.language] || 'alloy',
-        language: receiver.language
-      });
-      
       const speechResponse = await openai.audio.speech.create({
         model: 'tts-1',
         voice: LANGUAGE_TO_VOICE[receiver.language] || 'alloy',
@@ -477,23 +446,12 @@ Provide ONLY the translation without any explanations or notes.`,
         response_format: 'mp3',
         speed: 1.0,
       }).catch(error => {
-        console.error('Speech generation error details:', {
-          error: error.message,
-          status: error.status,
-          type: error.type,
-          code: error.code
-        });
         throw new Error(`Speech generation failed: ${error.message}`);
       });
 
       const audioBufferResponse = Buffer.from(
         await speechResponse.arrayBuffer()
       );
-
-      console.log('Speech generation complete:', {
-        outputSize: audioBufferResponse.length,
-        timestamp: new Date().toISOString()
-      });
 
       // Emit transcription to the entire room
       io.to(roomId).emit('transcription', {
@@ -511,13 +469,6 @@ Provide ONLY the translation without any explanations or notes.`,
       });
 
     } catch (error) {
-      console.error('Audio processing error details:', {
-        error: error.message,
-        stack: error.stack,
-        roomId,
-        socketId: socket.id,
-        timestamp: new Date().toISOString()
-      });
       socket.emit('errorMessage', { 
         message: error.message || 'Error processing audio data'
       });
@@ -527,12 +478,8 @@ Provide ONLY the translation without any explanations or notes.`,
         if (filePath && fs.existsSync(filePath)) {
           try {
             fs.unlinkSync(filePath);
-            console.log(`Cleaned up temp file: ${filePath}`);
           } catch (error) {
-            console.error(`Error deleting temp file:`, {
-              path: filePath,
-              error: error.message
-            });
+            console.error(`Error deleting temp file: ${filePath}`);
           }
         }
       }

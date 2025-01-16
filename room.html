@@ -1,3 +1,21 @@
+<!--
+    Interpify - Real-time voice translation platform
+    Copyright (C) 2024  Joshua Covelli (absolem)
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+-->
+
 <!-- room.html -->
 
 <!DOCTYPE html>
@@ -695,18 +713,10 @@
         isRecording = true;
         talkBtn.classList.add('active');
         
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-                     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-        console.log('Device detection - isIOS:', isIOS);
-        console.log('User Agent:', navigator.userAgent);
-        console.log('Platform:', navigator.platform);
-        
         // Only request media stream if we don't have it yet
         if (!mediaStream) {
           try {
             const contextSampleRate = audioContext.sampleRate;
-            console.log('Audio Context Sample Rate:', contextSampleRate);
-            
             const constraints = {
               audio: {
                 echoCancellation: true,
@@ -716,96 +726,31 @@
                 sampleRate: contextSampleRate
               }
             };
-            console.log('Requesting media with constraints:', JSON.stringify(constraints));
             
             mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-            const track = mediaStream.getAudioTracks()[0];
-            console.log('Audio track settings:', track.getSettings());
-            console.log('Audio track constraints:', track.getConstraints());
           } catch (micError) {
-            console.error('Detailed microphone error:', micError);
             throw new Error('Microphone access is required. Please allow microphone access and try again.');
           }
         }
 
-        // Log supported MIME types
-        console.log('Supported MIME types:');
-        ['audio/webm', 'audio/mp4', 'audio/ogg', 'audio/wav'].forEach(mimeType => {
-          console.log(`${mimeType}: ${MediaRecorder.isTypeSupported(mimeType)}`);
-        });
-
-        // Create new MediaRecorder instance each time
-        let mimeType = 'audio/webm';
-        
-        // iOS typically supports mp4
-        if (isIOS) {
-          if (MediaRecorder.isTypeSupported('audio/mp4')) {
-            mimeType = 'audio/mp4';
-          } else {
-            console.log('iOS device does not support audio/mp4, trying alternatives...');
-            if (MediaRecorder.isTypeSupported('audio/webm')) {
-              mimeType = 'audio/webm';
-            } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
-              mimeType = 'audio/ogg';
-            }
-          }
-        } else {
-          // For non-iOS devices, prefer webm
-          if (MediaRecorder.isTypeSupported('audio/webm')) {
-            mimeType = 'audio/webm';
-          } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-            mimeType = 'audio/mp4';
-          } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
-            mimeType = 'audio/ogg';
-          }
-        }
-
-        console.log(`Selected MIME type: ${mimeType}`);
-
-        const mediaRecorderOptions = {
+        const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+        mediaRecorder = new MediaRecorder(mediaStream, {
           mimeType: mimeType,
-          audioBitsPerSecond: audioContext.sampleRate
-        };
-        console.log('MediaRecorder options:', mediaRecorderOptions);
-
-        try {
-          mediaRecorder = new MediaRecorder(mediaStream, mediaRecorderOptions);
-          console.log('MediaRecorder created with settings:', {
-            mimeType: mediaRecorder.mimeType,
-            state: mediaRecorder.state,
-            audioBitsPerSecond: mediaRecorder.audioBitsPerSecond
-          });
-        } catch (e) {
-          console.error('Detailed MediaRecorder error:', e);
-          console.log('Falling back to default MediaRecorder settings');
-          mediaRecorder = new MediaRecorder(mediaStream);
-          console.log('Fallback MediaRecorder created with settings:', {
-            mimeType: mediaRecorder.mimeType,
-            state: mediaRecorder.state
-          });
-        }
+          audioBitsPerSecond: 16000
+        });
 
         mediaRecorder.ondataavailable = (e) => {
           if (e.data.size > 0) {
-            console.log(`Recorded chunk details:`, {
-              size: e.data.size,
-              type: e.data.type,
-              timestamp: new Date().toISOString()
-            });
             recordedChunks.push(e.data);
           }
         };
 
         recordedChunks = [];
         mediaRecorder.start();
-        console.log('MediaRecorder started:', {
-          state: mediaRecorder.state,
-          timeStamp: new Date().toISOString()
-        });
         statusDiv.textContent = 'Recording...';
 
       } catch (err) {
-        console.error('Detailed recording error:', err);
+        console.error('Recording error:', err.message);
         errorDiv.textContent = `Error starting recording: ${err.message}`;
         isRecording = false;
         talkBtn.classList.remove('active');
@@ -815,7 +760,6 @@
     function stopRecording() {
       if (!isRecording) return;
       
-      console.log('Stopping recording...');
       isRecording = false;
       talkBtn.classList.remove('active');
       talkBtn.disabled = true;
@@ -824,28 +768,11 @@
       try {
         if (mediaRecorder && mediaRecorder.state === 'recording') {
           mediaRecorder.onstop = () => {
-            console.log('MediaRecorder stopped, processing chunks...');
             if (recordedChunks.length > 0 && socket) {
-              console.log('Processing recorded chunks:', {
-                numberOfChunks: recordedChunks.length,
-                totalSize: recordedChunks.reduce((acc, chunk) => acc + chunk.size, 0),
-                mimeType: mediaRecorder.mimeType
-              });
-              
               const finalBlob = new Blob(recordedChunks, { type: mediaRecorder.mimeType });
-              console.log('Created final blob:', {
-                size: finalBlob.size,
-                type: finalBlob.type
-              });
-              
               const reader = new FileReader();
               reader.onload = (e) => {
                 const base64Data = e.target.result.split(',')[1];
-                console.log('Converted to base64:', {
-                  dataLength: base64Data.length,
-                  sampleStart: base64Data.substring(0, 50) + '...'
-                });
-                
                 socket.emit('audioData', { 
                   roomId, 
                   audioData: base64Data,
@@ -855,11 +782,7 @@
                 talkBtn.disabled = false;
               };
               reader.onerror = () => {
-                console.error('FileReader error:', {
-                  error: reader.error,
-                  errorCode: reader.error.code,
-                  errorMessage: reader.error.message
-                });
+                console.error('FileReader error:', reader.error);
                 errorDiv.textContent = 'Error processing recording';
                 statusDiv.textContent = '';
                 talkBtn.disabled = false;
@@ -867,25 +790,18 @@
               reader.readAsDataURL(finalBlob);
               recordedChunks = [];
             } else {
-              console.log('No audio data to process');
               statusDiv.textContent = 'No audio recorded';
               talkBtn.disabled = false;
             }
           };
           
           mediaRecorder.stop();
-          console.log('Initiated MediaRecorder stop');
         } else {
-          console.log('MediaRecorder not in recording state:', mediaRecorder?.state);
           statusDiv.textContent = 'Recording stopped';
           talkBtn.disabled = false;
         }
       } catch (err) {
-        console.error('Error in stopRecording:', {
-          error: err,
-          message: err.message,
-          stack: err.stack
-        });
+        console.error('Error stopping recording:', err.message);
         errorDiv.textContent = `Error stopping recording: ${err.message}`;
         statusDiv.textContent = '';
         talkBtn.disabled = false;
@@ -915,7 +831,7 @@
         return;
       }
       
-      transcriptionBox.insertBefore(messageDiv, transcriptionBox.firstChild); // Insert at top
+      transcriptionBox.insertBefore(messageDiv, transcriptionBox.firstChild);
 
       if (audio) {
         const playButton = messageDiv.querySelector('.play-audio');
@@ -933,8 +849,8 @@
       // Auto-scroll to top for new messages
       transcriptionBox.scrollTop = 0;
 
-      // Clean up old messages if there are too many (optional)
-      const maxMessages = 100; // Adjust this value as needed
+      // Clean up old messages if there are too many
+      const maxMessages = 100;
       const messages = transcriptionBox.getElementsByClassName('message');
       if (messages.length > maxMessages) {
         transcriptionBox.removeChild(messages[messages.length - 1]);
