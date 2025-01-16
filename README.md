@@ -12,15 +12,21 @@ A real-time translation platform that enables seamless communication across lang
 - Instant audio playback of translations
 - Chat-like interface showing both original and translated messages
 
-## Prerequisites
+## Privacy & Security
 
-- Node.js (v16 or higher)
-- npm (v8 or higher)
-- FFmpeg installed on your system
-  - Ubuntu/Debian: `sudo apt-get install ffmpeg`
-  - macOS: `brew install ffmpeg`
-  - Windows: Download from [FFmpeg website](https://ffmpeg.org/download.html)
-- OpenAI API key
+Interpify is designed with privacy in mind, implementing several features to protect user data:
+
+- **Disposable Rooms**: All chat rooms are temporary and automatically disposed of when users leave. No conversation history is stored on the server.
+- **Automatic Data Cleanup**: 
+  - Audio files are immediately deleted after processing
+  - Temporary files are automatically cleaned up
+  - No conversation logs or transcripts are retained
+  - Room data is cleared from memory when sessions end
+- **Local Processing**: All audio processing happens in real-time and is never stored permanently
+- **Maximum Duration**: Audio clips are limited to 60 seconds for security
+- **File Size Limits**: A 10MB file size limit is enforced to prevent abuse
+
+These features ensure that your conversations remain private and temporary, with no data persistence beyond the active session.
 
 ## Technologies Used
 
@@ -31,6 +37,16 @@ A real-time translation platform that enables seamless communication across lang
 - OpenAI's TTS for text-to-speech
 - WebRTC for audio capture
 - FFmpeg for audio processing
+
+## Prerequisites
+
+- Node.js (v16 or higher)
+- npm (v8 or higher)
+- FFmpeg installed on your system
+  - Ubuntu/Debian: `sudo apt-get install ffmpeg`
+  - macOS: `brew install ffmpeg`
+  - Windows: Download from [FFmpeg website](https://ffmpeg.org/download.html)
+- OpenAI API key
 
 ## Installation
 
@@ -108,19 +124,3 @@ While this is primarily a personal project, bug reports and suggestions are welc
 3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request 
-
-## Privacy & Security
-
-Interpify is designed with privacy in mind, implementing several features to protect user data:
-
-- **Disposable Rooms**: All chat rooms are temporary and automatically disposed of when users leave. No conversation history is stored on the server.
-- **Automatic Data Cleanup**: 
-  - Audio files are immediately deleted after processing
-  - Temporary files are automatically cleaned up
-  - No conversation logs or transcripts are retained
-  - Room data is cleared from memory when sessions end
-- **Local Processing**: All audio processing happens in real-time and is never stored permanently
-- **Maximum Duration**: Audio clips are limited to 60 seconds for security
-- **File Size Limits**: A 10MB file size limit is enforced to prevent abuse
-
-These features ensure that your conversations remain private and temporary, with no data persistence beyond the active session. 
