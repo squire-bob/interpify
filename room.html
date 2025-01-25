@@ -69,13 +69,15 @@
       margin: 0 auto;
       padding: 20px;
       box-sizing: border-box;
+      padding-bottom: 80px; /* Reduced padding for smaller talk controls */
     }
 
     .transcriptionBox {
       border: 1px solid var(--border-color);
       padding: 15px;
       margin: 10px 0;
-      height: 400px;
+      height: calc(100vh - 350px); /* Dynamic height based on viewport */
+      min-height: 300px;
       overflow-y: auto;
       background-color: var(--bg-color);
       color: var(--text-color);
@@ -85,11 +87,25 @@
     }
 
     .message {
-      max-width: 80%;
-      padding: 10px;
+      max-width: 85%;
+      padding: 12px;
       border-radius: 12px;
-      margin: 5px 0;
+      margin: 8px 0;
       word-wrap: break-word;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+
+    .message-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 5px;
+      font-size: 0.9em;
+    }
+
+    .message-content {
+      font-size: 1.1em;
+      line-height: 1.4;
     }
 
     .message.sent {
@@ -97,12 +113,14 @@
       background-color: var(--button-bg);
       color: var(--button-text);
       border-bottom-right-radius: 4px;
+      margin-left: 15%;
     }
 
     .message.received {
       align-self: flex-start;
       background-color: var(--room-info-bg);
       border-bottom-left-radius: 4px;
+      margin-right: 15%;
     }
 
     .message .username {
@@ -311,10 +329,27 @@
       
       .container {
         padding: 10px;
+        padding-bottom: 70px;
       }
       
       .room-info {
         padding: 15px;
+      }
+
+      .transcriptionBox {
+        height: calc(100vh - 300px);
+      }
+
+      .talk-controls {
+        padding: 8px;
+      }
+
+      .talk-controls .talk-button {
+        padding: 10px;
+      }
+
+      .message {
+        max-width: 90%;
       }
     }
 
@@ -357,6 +392,117 @@
       margin-top: 4px;
       font-style: italic;
     }
+
+    .language-tag {
+      font-size: 0.8em;
+      color: var(--text-color);
+      opacity: 0.7;
+      margin-left: 5px;
+    }
+
+    .participants-list li {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-bottom: 5px;
+    }
+
+    .recording-status {
+      margin-left: 8px;
+    }
+
+    .recording-indicator {
+      color: #ff4444;
+      animation: pulse 1.5s infinite;
+    }
+
+    .processing-indicator {
+      color: #4a90e2;
+      animation: spin 2s linear infinite;
+    }
+
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .help-section {
+      background: var(--room-info-bg);
+      padding: 15px;
+      border-radius: 8px;
+      margin: 10px 0;
+      font-size: 0.9em;
+    }
+
+    .help-content {
+      display: none;
+      margin-top: 10px;
+    }
+
+    .help-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 0;
+    }
+
+    .help-toggle {
+      font-size: 0.8em;
+      padding: 4px 8px;
+      background: var(--button-bg);
+      color: var(--button-text);
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .talk-controls {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background-color: var(--bg-color);
+      padding: 10px; /* Reduced padding */
+      box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 5px; /* Reduced gap */
+    }
+
+    .talk-controls .talk-button {
+      width: 100%;
+      max-width: 800px;
+      padding: 12px; /* Reduced padding */
+      font-size: 1em;
+    }
+
+    .talk-controls .talk-hint {
+      width: 100%;
+      max-width: 800px;
+      text-align: center;
+      font-size: 0.8em;
+      opacity: 0.8;
+    }
+
+    .join-controls {
+      transition: all 0.3s ease;
+      overflow: hidden;
+    }
+
+    .join-controls.hidden {
+      height: 0;
+      padding: 0;
+      margin: 0;
+      opacity: 0;
+    }
   </style>
 </head>
 <body>
@@ -385,7 +531,7 @@
       </div>
     </div>
     
-    <div class="controls">
+    <div class="controls join-controls" id="joinControls">
       <label>Username: <input type="text" id="username"></label>
       <label>Language: 
         <select id="language">
@@ -404,15 +550,43 @@
       <button id="joinBtn">Join Room</button>
     </div>
 
+    <div class="help-section" id="helpSection">
+      <h3 class="help-header">
+        How to Use
+        <button class="help-toggle" id="toggleHelp">Hide Help</button>
+      </h3>
+      <div class="help-content" id="helpContent">
+        <ul>
+          <li><strong>Recording:</strong> Press and hold the Talk button or Spacebar to record your message.</li>
+          <li><strong>Auto-Translation:</strong> Your message will be automatically translated for users with different languages.</li>
+          <li><strong>Same Language:</strong> Users with the same language will hear your original message.</li>
+          <li><strong>Audio Playback:</strong> 
+            <ul>
+              <li>Desktop: Audio plays automatically</li>
+              <li>Mobile: Tap the "Play Translation" button</li>
+            </ul>
+          </li>
+          <li><strong>Status Indicators:</strong>
+            <ul>
+              <li>🎙️ Someone is recording</li>
+              <li>⚙️ Message is being processed</li>
+            </ul>
+          </li>
+        </ul>
+      </div>
+    </div>
+
     <div id="status" class="status"></div>
     <div id="error" class="error"></div>
     <div id="transcriptionBox"></div>
     
-    <button id="talkBtn" class="talk-button" disabled>
-      Press and hold to talk
-    </button>
-    <div class="talk-hint">
-      You can also hold the spacebar to talk
+    <div class="talk-controls">
+      <button id="talkBtn" class="talk-button" disabled>
+        Press and hold to talk
+      </button>
+      <div class="talk-hint">
+        You can also hold the spacebar to talk
+      </div>
     </div>
   </div>
 
@@ -445,6 +619,7 @@
     let reconnectAttempts = 0;
     let recordedChunks = [];
     const maxReconnectAttempts = 5;
+    let isProcessingAudio = false;
 
     // Room elements
     const joinBtn = document.getElementById('joinBtn');
@@ -487,14 +662,19 @@
       }
     });
 
-    function updateParticipantsList(participants) {
-      if (!participants || participants.length === 0) {
-        participantsList.innerHTML = '<li>No participants yet</li>';
-        return;
-      }
-      participantsList.innerHTML = participants
-        .map(username => `<li>${username}</li>`)
-        .join('');
+    function updateParticipantsList(users) {
+      const participantsList = document.getElementById('participantsList');
+      if (!participantsList) return;
+
+      participantsList.innerHTML = users.length ? 
+        users.map(user => `
+          <li>
+            ${user.username} 
+            <span class="language-tag">(${LANGUAGE_NAMES[user.language] || user.language})</span>
+            <span class="recording-status" data-user="${user.socketId}"></span>
+          </li>
+        `).join('') : 
+        '<li>Waiting for participants...</li>';
     }
 
     // Initialize socket
@@ -553,72 +733,62 @@
         addMessage(username, text, 'sent');
       });
 
-      socket.on('transcription', ({ username, message, isOriginal }) => {
-        // Show original message as sent by the speaker
-        addMessage(username, message, 'sent', null, null, isOriginal);
+      socket.on('transcription', ({ username, message, language, isOriginal }) => {
+        // Clear processing indicator when transcription is received
+        const statusSpans = document.querySelectorAll('.recording-status');
+        statusSpans.forEach(span => {
+          if (span.parentElement.textContent.includes(username)) {
+            span.innerHTML = '';
+          }
+        });
+        addMessage(username, message, 'sent', null, language);
       });
 
-      socket.on('translatedAudio', ({ username, text, audio, isTranslation }) => {
+      socket.on('translatedAudio', ({ username, text, audio, language, isTranslation }) => {
         try {
           console.log('Received translated audio:', {
             username,
             textLength: text?.length,
             audioLength: audio?.length,
+            language,
             isTranslation
           });
-
-          // Add message first
-          addMessage(username, text, false, true, audio);
           
-          // Check if we're on iOS
-          const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-                        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+          // Clear processing indicator when translation is complete
+          const statusSpans = document.querySelectorAll('.recording-status');
+          statusSpans.forEach(span => {
+            if (span.parentElement.textContent.includes(username)) {
+              span.innerHTML = '';
+            }
+          });
           
-          if (!isIOS) {
-            // For non-iOS devices, attempt autoplay
-            if (!audio) {
-              throw new Error('No audio data received');
-            }
-
-            try {
-              const audioBlob = base64ToBlob(audio, 'audio/mp3');
-              console.log('Created audio blob:', {
-                size: audioBlob.size,
-                type: audioBlob.type
-              });
-
-              const audioUrl = URL.createObjectURL(audioBlob);
-              const audioElement = new Audio(audioUrl);
-              
-              audioElement.onerror = (e) => {
-                console.error('Audio element error:', e);
-                throw new Error('Failed to load audio');
-              };
-
-              audioElement.play().catch(error => {
-                console.error('Error autoplaying audio:', error);
-                // Autoplay failed, button is already added by addMessage
-              });
-            } catch (error) {
-              console.error('Error creating audio blob:', error);
-              throw error;
-            }
-          }
-          // For iOS devices, rely on the play button added by addMessage
+          addMessage(username, text, 'received', audio, language);
           
         } catch (error) {
-          console.error('Error processing translated audio:', {
-            error: error.message,
-            stack: error.stack,
-            audioPresent: !!audio,
-            textPresent: !!text
-          });
+          console.error('Error processing translated audio:', error);
           errorDiv.textContent = 'Error processing translated audio: ' + error.message;
+          
+          // Clear processing indicator on error too
+          const statusSpans = document.querySelectorAll('.recording-status');
+          statusSpans.forEach(span => {
+            if (span.parentElement.textContent.includes(username)) {
+              span.innerHTML = '';
+            }
+          });
         }
       });
 
-      socket.on('errorMessage', ({ message }) => {
+      socket.on('errorMessage', ({ message, username }) => {
         errorDiv.textContent = `Error: ${message}`;
+        // Clear processing indicator on error
+        if (username) {
+          const statusSpans = document.querySelectorAll('.recording-status');
+          statusSpans.forEach(span => {
+            if (span.parentElement.textContent.includes(username)) {
+              span.innerHTML = '';
+            }
+          });
+        }
       });
 
       socket.on('status', ({ message }) => {
@@ -627,6 +797,25 @@
 
       socket.on('updateUserList', (users) => {
         updateParticipantsList(users);
+      });
+
+      socket.on('recordingStatusUpdate', ({ username, isRecording }) => {
+        const statusSpans = document.querySelectorAll('.recording-status');
+        statusSpans.forEach(span => {
+          if (span.parentElement.textContent.includes(username)) {
+            span.innerHTML = isRecording ? 
+              '<span class="recording-indicator">🎙️ Recording...</span>' : '';
+          }
+        });
+      });
+
+      socket.on('processingStatusUpdate', ({ username }) => {
+        const statusSpans = document.querySelectorAll('.recording-status');
+        statusSpans.forEach(span => {
+          if (span.parentElement.textContent.includes(username)) {
+            span.innerHTML = '<span class="processing-indicator">⚙️ Processing...</span>';
+          }
+        });
       });
     }
 
@@ -645,6 +834,13 @@
         if (success) {
           try {
             await audioContext.resume();
+            
+            // Hide join controls
+            document.getElementById('joinControls').classList.add('hidden');
+            
+            // Show help section after successful join
+            const helpContent = document.getElementById('helpContent');
+            helpContent.style.display = 'block';
             
             // Request microphone permissions immediately after joining
             try {
@@ -665,8 +861,6 @@
               errorDiv.textContent = 'Please allow microphone access to use the talk feature.';
               talkBtn.disabled = true;
             }
-            
-            joinBtn.disabled = true; // Disable join button after successful join
           } catch (error) {
             console.error('Could not initialize audio:', error);
             errorDiv.textContent = 'Could not initialize audio system.';
@@ -707,11 +901,12 @@
     });
 
     async function startRecording() {
-      if (!socket || !audioContext || isRecording || talkBtn.disabled) return;
+      if (!socket || !audioContext || isRecording || talkBtn.disabled || isProcessingAudio) return;
       
       try {
         isRecording = true;
         talkBtn.classList.add('active');
+        updateRecordingStatus(document.getElementById('username').value, true);
         
         // Only request media stream if we don't have it yet
         if (!mediaStream) {
@@ -754,6 +949,7 @@
         errorDiv.textContent = `Error starting recording: ${err.message}`;
         isRecording = false;
         talkBtn.classList.remove('active');
+        updateRecordingStatus(document.getElementById('username').value, false);
       }
     }
 
@@ -763,6 +959,8 @@
       isRecording = false;
       talkBtn.classList.remove('active');
       talkBtn.disabled = true;
+      isProcessingAudio = true;
+      updateRecordingStatus(document.getElementById('username').value, false);
       statusDiv.textContent = 'Processing audio...';
       
       try {
@@ -780,18 +978,21 @@
                 });
                 statusDiv.textContent = 'Recording sent';
                 talkBtn.disabled = false;
+                isProcessingAudio = false;
               };
               reader.onerror = () => {
                 console.error('FileReader error:', reader.error);
                 errorDiv.textContent = 'Error processing recording';
                 statusDiv.textContent = '';
                 talkBtn.disabled = false;
+                isProcessingAudio = false;
               };
               reader.readAsDataURL(finalBlob);
               recordedChunks = [];
             } else {
               statusDiv.textContent = 'No audio recorded';
               talkBtn.disabled = false;
+              isProcessingAudio = false;
             }
           };
           
@@ -799,29 +1000,41 @@
         } else {
           statusDiv.textContent = 'Recording stopped';
           talkBtn.disabled = false;
+          isProcessingAudio = false;
         }
       } catch (err) {
         console.error('Error stopping recording:', err.message);
         errorDiv.textContent = `Error stopping recording: ${err.message}`;
         statusDiv.textContent = '';
         talkBtn.disabled = false;
+        isProcessingAudio = false;
       }
     }
 
-    function addMessage(username, text, isOriginal = false, isTranslation = false, audio = null) {
+    function addMessage(username, text, type = 'sent', audio = null, language = null) {
       const messageDiv = document.createElement('div');
-      messageDiv.className = `message ${isOriginal ? 'sent' : 'received'}`;
+      messageDiv.className = `message ${type}`;
       
       const timestamp = new Date().toLocaleTimeString();
       
+      let languageDisplay = '';
+      if (language) {
+        languageDisplay = `<span class="language-tag">(${LANGUAGE_NAMES[language] || language})</span>`;
+      }
+      
       messageDiv.innerHTML = `
         <div class="message-header">
-          <span class="username">${username}</span>
+          <span class="username">${username}${languageDisplay}</span>
           <span class="timestamp">${timestamp}</span>
         </div>
         <div class="message-content">
           <p>${text}</p>
-          ${audio ? `<button class="play-audio">Play Translation</button>` : ''}
+          ${audio ? `
+            <button class="play-translation">Play Translation</button>
+            <div class="ios-audio-hint" style="display: none;">
+              Auto-play not available on mobile devices. Please tap to play.
+            </div>
+          ` : ''}
         </div>
       `;
 
@@ -834,16 +1047,34 @@
       transcriptionBox.insertBefore(messageDiv, transcriptionBox.firstChild);
 
       if (audio) {
-        const playButton = messageDiv.querySelector('.play-audio');
-        playButton.addEventListener('click', () => {
-          const audioData = audio;
-          const audioBlob = base64ToBlob(audioData, 'audio/mp3');
-          const audioUrl = URL.createObjectURL(audioBlob);
-          const audioElement = new Audio(audioUrl);
-          audioElement.play().catch(error => {
-            console.error('Error playing audio:', error);
+        const audioBlob = new Blob([Uint8Array.from(atob(audio), c => c.charCodeAt(0))], { type: 'audio/mp3' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audioElement = new Audio(audioUrl);
+        
+        const playButton = messageDiv.querySelector('.play-translation');
+        const iosHint = messageDiv.querySelector('.ios-audio-hint');
+        
+        // Check if we're on iOS or Android
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        
+        if (playButton) {
+          playButton.addEventListener('click', () => {
+            audioElement.play().catch(console.error);
           });
-        });
+        }
+
+        if (!isMobile) {
+          // For desktop devices, attempt autoplay
+          audioElement.play().catch(error => {
+            console.error('Error autoplaying audio:', error);
+            // Autoplay failed, button is already visible
+          });
+        } else {
+          // For mobile devices, show the hint
+          if (iosHint) {
+            iosHint.style.display = 'block';
+          }
+        }
       }
 
       // Auto-scroll to top for new messages
@@ -860,16 +1091,10 @@
     // Add this at the start of your script section
     const themeToggle = document.getElementById('themeToggle');
     
-    // Check for saved theme preference or default to light
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-theme', savedTheme);
-
     themeToggle.addEventListener('click', () => {
       const currentTheme = document.documentElement.getAttribute('data-theme');
       const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-      
       document.documentElement.setAttribute('data-theme', newTheme);
-      localStorage.setItem('theme', newTheme);
     });
 
     // Add this after the socket event listeners setup
@@ -878,6 +1103,39 @@
         initializeSocket();
       }
       joinRoom();
+    });
+
+    // Language names mapping
+    const LANGUAGE_NAMES = {
+      en: 'English',
+      es: 'Spanish',
+      fr: 'French',
+      de: 'German',
+      it: 'Italian',
+      pt: 'Portuguese',
+      ru: 'Russian',
+      ja: 'Japanese',
+      ko: 'Korean',
+      zh: 'Chinese'
+    };
+
+    // Add recording status indicators
+    function updateRecordingStatus(username, isRecording) {
+      socket.emit('updateRecordingStatus', {
+        roomId,
+        username,
+        isRecording
+      });
+    }
+
+    // Help section toggle
+    const toggleHelpBtn = document.getElementById('toggleHelp');
+    const helpContent = document.getElementById('helpContent');
+    
+    toggleHelpBtn.addEventListener('click', () => {
+      const isCurrentlyHidden = helpContent.style.display === 'none';
+      helpContent.style.display = isCurrentlyHidden ? 'block' : 'none';
+      toggleHelpBtn.textContent = isCurrentlyHidden ? 'Hide Help' : 'Show Help';
     });
   </script>
 </body>

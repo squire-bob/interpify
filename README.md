@@ -6,11 +6,15 @@ A real-time translation platform that enables seamless communication across lang
 
 - Real-time voice translation between multiple languages
 - Push-to-talk functionality with space bar support
-- Dark/Light theme support
+- Dark/Light theme support (resets on page refresh)
 - Mobile-friendly interface
 - Support for 10 major languages including English, Spanish, French, German, Italian, Portuguese, Russian, Japanese, Korean, and Chinese
 - Instant audio playback of translations
-- Chat-like interface showing both original and translated messages
+- Chat-like interface showing transcriptions and translations
+- Multi-user rooms with unlimited participants
+- Visual indicators for recording and processing status
+- Same-language users hear original audio
+- Speakers see their own transcriptions immediately
 
 ## Privacy & Security
 
@@ -22,6 +26,7 @@ Interpify is designed with privacy in mind, implementing several features to pro
   - Temporary files are automatically cleaned up
   - No conversation logs or transcripts are retained
   - Room data is cleared from memory when sessions end
+  - No user preferences are stored between sessions
 - **Local Processing**: All audio processing happens in real-time and is never stored permanently
 - **Maximum Duration**: Audio clips are limited to 60 seconds for security
 - **File Size Limits**: A 10MB file size limit is enforced to prevent abuse

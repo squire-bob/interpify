@@ -141,8 +141,9 @@ async function initializeServer() {
   }
 }
 
-// Rooms
+// At the top level of the file
 let rooms = {};
+let roomLanguageGroups = {};
 
 // Serve the main page
 app.get('/', (req, res) => {
@@ -239,37 +240,56 @@ io.on('connection', (socket) => {
 
   socket.on('joinRoom', ({ roomId, username, language }, callback) => {
     if (rooms[roomId]) {
-      if (rooms[roomId].users.length < 2) {
-        const user = { 
-          id: socket.id, 
-          username, 
-          language,
-          socketId: socket.id
-        };
-        rooms[roomId].users.push(user);
-        socket.join(roomId);
-        
-        // Store room ID in socket for easy reference
-        socket.roomId = roomId;
-        
-        io.to(roomId).emit(
-          'updateUserList',
-          rooms[roomId].users.map((user) => user.username)
-        );
-        callback(true);
-        console.log(
-          `User ${username} joined room ${roomId} with language ${language}`
-        );
-      } else {
-        callback(false);
-        console.log(`Failed to join room ${roomId}: Room is full.`);
+      const user = { 
+        id: socket.id, 
+        username, 
+        language,
+        socketId: socket.id
+      };
+      
+      // Add user to room
+      rooms[roomId].users.push(user);
+      socket.join(roomId);
+      
+      // Store room ID in socket for easy reference
+      socket.roomId = roomId;
+      
+      // Update language groups for the room
+      if (!roomLanguageGroups[roomId]) {
+        roomLanguageGroups[roomId] = new Map();
       }
+      
+      // Add user to their language group
+      const langGroup = roomLanguageGroups[roomId].get(language) || [];
+      langGroup.push(user);
+      roomLanguageGroups[roomId].set(language, langGroup);
+      
+      io.to(roomId).emit(
+        'updateUserList',
+        rooms[roomId].users.map((user) => ({
+          username: user.username,
+          language: user.language
+        }))
+      );
+      
+      callback(true);
+      console.log(
+        `User ${username} joined room ${roomId} with language ${language}`
+      );
     } else {
       callback(false);
       console.log(`Failed to join room ${roomId}: Room does not exist.`);
     }
   });
 
+  // Simplify the updateRecordingStatus handler
+  socket.on('updateRecordingStatus', ({ roomId, username, isRecording }) => {
+    if (rooms[roomId]) {
+      io.to(roomId).emit('recordingStatusUpdate', { username, isRecording });
+    }
+  });
+
+  // Clean up the audioData handler
   socket.on('audioData', ({ roomId, audioData, isSpeaking }) => {
     console.log(
       `Received audioData from ${socket.id} in room ${roomId}:`,
@@ -293,6 +313,11 @@ io.on('connection', (socket) => {
       console.error(`Socket ${socket.id} not found in room ${roomId}`);
       socket.emit('errorMessage', { message: 'Not a member of this room' });
       return;
+    }
+
+    const sender = room.users.find(user => user.socketId === socket.id);
+    if (sender) {
+      io.to(roomId).emit('processingStatusUpdate', { username: sender.username });
     }
 
     if (!isSpeaking && audioData.length > 0) {
@@ -392,85 +417,129 @@ io.on('connection', (socket) => {
       }
 
       const sender = room.users.find(user => user.socketId === socket.id);
-      const receiver = room.users.find(user => user.socketId !== socket.id);
-
-      if (!sender || !receiver) {
-        throw new Error('Could not find sender or receiver in room. Make sure there are two users in the room.');
+      if (!sender) {
+        throw new Error('Sender not found in room');
       }
 
-      // Transcribe audio using converted WAV file
+      // Get transcription first
       const transcription = await openai.audio.transcriptions.create({
         file: fs.createReadStream(wavFilePath),
         model: 'whisper-1',
         language: sender.language,
         response_format: 'text',
-      }).catch(error => {
-        throw new Error(`Transcription failed: ${error.message}`);
       });
 
       if (!transcription || !transcription.trim()) {
         throw new Error('Transcription returned empty text.');
       }
 
-      // Translate text
-      const translationResponse = await openai.chat.completions.create({
-        model: 'gpt-4o',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a professional translator specializing in ${LANGUAGE_NAMES[sender.language]} to ${LANGUAGE_NAMES[receiver.language]} translation.
+      // Send original transcription back to the speaker
+      socket.emit('translatedAudio', {
+        username: sender.username,
+        text: transcription,
+        audio: null, // No need to send audio back to the speaker
+        language: sender.language,
+        isTranslation: false
+      });
+
+      // Get all unique languages in the room except sender's
+      const targetLanguages = new Set();
+      const sameLanguageUsers = [];
+      
+      room.users.forEach(user => {
+        if (user.socketId !== socket.id) {
+          if (user.language === sender.language) {
+            sameLanguageUsers.push(user);
+          } else {
+            targetLanguages.add(user.language);
+          }
+        }
+      });
+
+      // Send original text and audio to users with the same language
+      if (sameLanguageUsers.length > 0) {
+        const speechResponse = await openai.audio.speech.create({
+          model: 'tts-1',
+          voice: LANGUAGE_TO_VOICE[sender.language] || 'alloy',
+          input: transcription,
+          response_format: 'mp3',
+          speed: 1.0,
+        });
+
+        const audioBufferResponse = Buffer.from(
+          await speechResponse.arrayBuffer()
+        );
+
+        // Send audio to all users with the same language
+        sameLanguageUsers.forEach(user => {
+          socket.to(user.socketId).emit('translatedAudio', {
+            username: sender.username,
+            text: transcription,
+            audio: audioBufferResponse.toString('base64'),
+            language: sender.language,
+            isTranslation: false
+          });
+        });
+      }
+
+      // Translate and generate speech for each target language
+      for (const targetLang of targetLanguages) {
+        // Get translation for this language
+        const translationResponse = await openai.chat.completions.create({
+          model: 'gpt-4',
+          messages: [
+            {
+              role: 'system',
+              content: `You are a professional translator specializing in ${LANGUAGE_NAMES[sender.language]} to ${LANGUAGE_NAMES[targetLang]} translation.
 Your task is to translate the following text naturally and idiomatically, preserving the original meaning and tone.
 For informal speech, maintain a conversational style. For formal content, maintain appropriate formality.
 Provide ONLY the translation without any explanations or notes.`,
-          },
-          {
-            role: 'user',
-            content: transcription,
-          },
-        ],
-        temperature: 0.3,
-      }).catch(error => {
-        throw new Error(`Translation failed: ${error.message}`);
-      });
+            },
+            {
+              role: 'user',
+              content: transcription,
+            },
+          ],
+          temperature: 0.3,
+        });
 
-      const translatedText = translationResponse.choices[0].message.content.trim();
-      if (!translatedText) {
-        throw new Error('Translation returned empty text.');
+        const translatedText = translationResponse.choices[0].message.content.trim();
+        
+        // Generate speech for this translation
+        const speechResponse = await openai.audio.speech.create({
+          model: 'tts-1',
+          voice: LANGUAGE_TO_VOICE[targetLang] || 'alloy',
+          input: translatedText,
+          response_format: 'mp3',
+          speed: 1.0,
+        });
+
+        const audioBufferResponse = Buffer.from(
+          await speechResponse.arrayBuffer()
+        );
+
+        // Get all users who need this language
+        const targetUsers = room.users.filter(
+          user => user.language === targetLang && user.socketId !== sender.socketId
+        );
+
+        // Emit translated text and audio to all users of this language
+        targetUsers.forEach(user => {
+          socket.to(user.socketId).emit('translatedAudio', {
+            username: sender.username,
+            text: translatedText,
+            audio: audioBufferResponse.toString('base64'),
+            language: targetLang,
+            isTranslation: true
+          });
+        });
       }
 
-      // Generate speech from translated text
-      const speechResponse = await openai.audio.speech.create({
-        model: 'tts-1',
-        voice: LANGUAGE_TO_VOICE[receiver.language] || 'alloy',
-        input: translatedText,
-        response_format: 'mp3',
-        speed: 1.0,
-      }).catch(error => {
-        throw new Error(`Speech generation failed: ${error.message}`);
-      });
-
-      const audioBufferResponse = Buffer.from(
-        await speechResponse.arrayBuffer()
-      );
-
-      // Emit transcription to the entire room
-      io.to(roomId).emit('transcription', {
-        username: sender.username,
-        message: transcription,
-        isOriginal: true
-      });
-
-      // Emit translated text and audio to the receiver
-      socket.to(receiver.socketId).emit('translatedAudio', {
-        username: sender.username,
-        text: translatedText,
-        audio: audioBufferResponse.toString('base64'),
-        isTranslation: true
-      });
-
     } catch (error) {
+      const sender = rooms[roomId]?.users.find(user => user.socketId === socket.id);
       socket.emit('errorMessage', { 
-        message: error.message || 'Error processing audio data'
+        message: error.message || 'Error processing audio data',
+        username: sender?.username
       });
     } finally {
       // Clean up temporary files with error handling
@@ -504,16 +573,39 @@ Provide ONLY the translation without any explanations or notes.`,
 
   function leaveRoom(socket, roomId) {
     if (rooms[roomId]) {
+      const user = rooms[roomId].users.find(u => u.socketId === socket.id);
+      if (user) {
+        // Remove user from language groups
+        if (roomLanguageGroups[roomId]) {
+          const langGroup = roomLanguageGroups[roomId].get(user.language);
+          if (langGroup) {
+            const index = langGroup.findIndex(u => u.socketId === socket.id);
+            if (index !== -1) {
+              langGroup.splice(index, 1);
+            }
+            if (langGroup.length === 0) {
+              roomLanguageGroups[roomId].delete(user.language);
+            }
+          }
+        }
+      }
+
+      // Remove user from room
       rooms[roomId].users = rooms[roomId].users.filter(
         (user) => user.socketId !== socket.id
       );
+
       if (rooms[roomId].users.length === 0) {
         delete rooms[roomId];
+        delete roomLanguageGroups[roomId];
         console.log(`Room ${roomId} deleted due to no active users.`);
       } else {
         io.to(roomId).emit(
           'updateUserList',
-          rooms[roomId].users.map((user) => user.username)
+          rooms[roomId].users.map((user) => ({
+            username: user.username,
+            language: user.language
+          }))
         );
       }
     }
