@@ -119,7 +119,7 @@ These features ensure that your conversations remain private and temporary, with
 - Node.js with Express
 - Socket.IO for real-time communication
 - OpenAI's Whisper for speech-to-text
-- OpenAI's GPT-4 for translation
+- OpenAI's GPT-4o-mini for translation
 - OpenAI's TTS for text-to-speech
 - WebRTC for audio capture
 - FFmpeg for audio processing
