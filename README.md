@@ -8,13 +8,94 @@ A real-time translation platform that enables seamless communication across lang
 - Push-to-talk functionality with space bar support
 - Dark/Light theme support (resets on page refresh)
 - Mobile-friendly interface
-- Support for 10 major languages including English, Spanish, French, German, Italian, Portuguese, Russian, Japanese, Korean, and Chinese
+- Support for 75 languages including all major world languages
 - Instant audio playback of translations
 - Chat-like interface showing transcriptions and translations
 - Multi-user rooms with unlimited participants
 - Visual indicators for recording and processing status
 - Same-language users hear original audio
 - Speakers see their own transcriptions immediately
+
+## Supported Languages
+
+Interpify supports 75 languages:
+
+- Afrikaans
+- Albanian
+- Amharic
+- Arabic
+- Armenian
+- Azerbaijani
+- Basque
+- Belarusian
+- Bengali
+- Bosnian
+- Bulgarian
+- Catalan
+- Chinese (Simplified)
+- Chinese (Traditional)
+- Croatian
+- Czech
+- Danish
+- Dutch
+- English
+- Estonian
+- Finnish
+- French
+- Georgian
+- German
+- Greek
+- Gujarati
+- Haitian Creole
+- Hebrew
+- Hindi
+- Hungarian
+- Icelandic
+- Igbo
+- Indonesian
+- Irish
+- Italian
+- Japanese
+- Javanese
+- Kazakh
+- Khmer
+- Korean
+- Kurdish
+- Latvian
+- Lithuanian
+- Macedonian
+- Malay
+- Maltese
+- Marathi
+- Mongolian
+- Nepali
+- Norwegian
+- Persian
+- Polish
+- Portuguese
+- Punjabi
+- Romanian
+- Russian
+- Serbian
+- Sinhala
+- Slovak
+- Slovenian
+- Somali
+- Spanish
+- Swahili
+- Swedish
+- Tamil
+- Telugu
+- Thai
+- Turkish
+- Ukrainian
+- Urdu
+- Uzbek
+- Vietnamese
+- Welsh
+- Xhosa
+- Yoruba
+- Zulu
 
 ## Privacy & Security
 

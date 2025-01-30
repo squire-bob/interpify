@@ -170,30 +170,162 @@ const validateAudio = (buffer) => {
 
 // Language to voice mapping for better TTS results
 const LANGUAGE_TO_VOICE = {
+  af: 'alloy',    // Afrikaans
+  sq: 'alloy',    // Albanian
+  am: 'alloy',    // Amharic
+  ar: 'nova',     // Arabic
+  hy: 'alloy',    // Armenian
+  az: 'alloy',    // Azerbaijani
+  eu: 'alloy',    // Basque
+  be: 'alloy',    // Belarusian
+  bn: 'nova',     // Bengali
+  bs: 'alloy',    // Bosnian
+  bg: 'alloy',    // Bulgarian
+  ca: 'nova',     // Catalan
+  'zh-CN': 'nova', // Chinese Simplified
+  'zh-TW': 'nova', // Chinese Traditional
+  hr: 'alloy',    // Croatian
+  cs: 'alloy',    // Czech
+  da: 'nova',     // Danish
+  nl: 'nova',     // Dutch
   en: 'alloy',    // English
-  es: 'nova',     // Spanish
+  et: 'alloy',    // Estonian
+  fi: 'nova',     // Finnish
   fr: 'nova',     // French
+  ka: 'alloy',    // Georgian
   de: 'nova',     // German
+  el: 'nova',     // Greek
+  gu: 'alloy',    // Gujarati
+  ht: 'alloy',    // Haitian Creole
+  he: 'nova',     // Hebrew
+  hi: 'nova',     // Hindi
+  hu: 'alloy',    // Hungarian
+  is: 'alloy',    // Icelandic
+  ig: 'alloy',    // Igbo
+  id: 'nova',     // Indonesian
+  ga: 'alloy',    // Irish
   it: 'nova',     // Italian
-  pt: 'nova',     // Portuguese
-  ru: 'alloy',    // Russian
   ja: 'nova',     // Japanese
+  jv: 'alloy',    // Javanese
+  kk: 'alloy',    // Kazakh
+  km: 'alloy',    // Khmer
   ko: 'nova',     // Korean
-  zh: 'nova',     // Chinese
+  ku: 'alloy',    // Kurdish
+  lv: 'alloy',    // Latvian
+  lt: 'alloy',    // Lithuanian
+  mk: 'alloy',    // Macedonian
+  ms: 'nova',     // Malay
+  mt: 'alloy',    // Maltese
+  mr: 'nova',     // Marathi
+  mn: 'alloy',    // Mongolian
+  ne: 'alloy',    // Nepali
+  no: 'nova',     // Norwegian
+  fa: 'nova',     // Persian
+  pl: 'nova',     // Polish
+  pt: 'nova',     // Portuguese
+  pa: 'nova',     // Punjabi
+  ro: 'nova',     // Romanian
+  ru: 'alloy',    // Russian
+  sr: 'alloy',    // Serbian
+  si: 'alloy',    // Sinhala
+  sk: 'alloy',    // Slovak
+  sl: 'alloy',    // Slovenian
+  so: 'alloy',    // Somali
+  es: 'nova',     // Spanish
+  sw: 'alloy',    // Swahili
+  sv: 'nova',     // Swedish
+  ta: 'nova',     // Tamil
+  te: 'nova',     // Telugu
+  th: 'nova',     // Thai
+  tr: 'nova',     // Turkish
+  uk: 'nova',     // Ukrainian
+  ur: 'nova',     // Urdu
+  uz: 'alloy',    // Uzbek
+  vi: 'nova',     // Vietnamese
+  cy: 'alloy',    // Welsh
+  xh: 'alloy',    // Xhosa
+  yo: 'alloy',    // Yoruba
+  zu: 'alloy',    // Zulu
 };
 
 // Language names for better prompts
 const LANGUAGE_NAMES = {
+  af: 'Afrikaans',
+  sq: 'Albanian',
+  am: 'Amharic',
+  ar: 'Arabic',
+  hy: 'Armenian',
+  az: 'Azerbaijani',
+  eu: 'Basque',
+  be: 'Belarusian',
+  bn: 'Bengali',
+  bs: 'Bosnian',
+  bg: 'Bulgarian',
+  ca: 'Catalan',
+  'zh-CN': 'Chinese Simplified',
+  'zh-TW': 'Chinese Traditional',
+  hr: 'Croatian',
+  cs: 'Czech',
+  da: 'Danish',
+  nl: 'Dutch',
   en: 'English',
-  es: 'Spanish',
+  et: 'Estonian',
+  fi: 'Finnish',
   fr: 'French',
+  ka: 'Georgian',
   de: 'German',
+  el: 'Greek',
+  gu: 'Gujarati',
+  ht: 'Haitian Creole',
+  he: 'Hebrew',
+  hi: 'Hindi',
+  hu: 'Hungarian',
+  is: 'Icelandic',
+  ig: 'Igbo',
+  id: 'Indonesian',
+  ga: 'Irish',
   it: 'Italian',
-  pt: 'Portuguese',
-  ru: 'Russian',
   ja: 'Japanese',
+  jv: 'Javanese',
+  kk: 'Kazakh',
+  km: 'Khmer',
   ko: 'Korean',
-  zh: 'Chinese (Mandarin)',
+  ku: 'Kurdish',
+  lv: 'Latvian',
+  lt: 'Lithuanian',
+  mk: 'Macedonian',
+  ms: 'Malay',
+  mt: 'Maltese',
+  mr: 'Marathi',
+  mn: 'Mongolian',
+  ne: 'Nepali',
+  no: 'Norwegian',
+  fa: 'Persian',
+  pl: 'Polish',
+  pt: 'Portuguese',
+  pa: 'Punjabi',
+  ro: 'Romanian',
+  ru: 'Russian',
+  sr: 'Serbian',
+  si: 'Sinhala',
+  sk: 'Slovak',
+  sl: 'Slovenian',
+  so: 'Somali',
+  es: 'Spanish',
+  sw: 'Swahili',
+  sv: 'Swedish',
+  ta: 'Tamil',
+  te: 'Telugu',
+  th: 'Thai',
+  tr: 'Turkish',
+  uk: 'Ukrainian',
+  ur: 'Urdu',
+  uz: 'Uzbek',
+  vi: 'Vietnamese',
+  cy: 'Welsh',
+  xh: 'Xhosa',
+  yo: 'Yoruba',
+  zu: 'Zulu'
 };
 
 io.on('connection', (socket) => {
@@ -486,7 +618,7 @@ io.on('connection', (socket) => {
       for (const targetLang of targetLanguages) {
         // Get translation for this language
         const translationResponse = await openai.chat.completions.create({
-          model: 'gpt-4',
+          model: 'gpt-4o-mini',
           messages: [
             {
               role: 'system',
