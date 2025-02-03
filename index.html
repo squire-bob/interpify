@@ -148,6 +148,24 @@
         width: 100%;
       }
     }
+
+    .attribution {
+      position: fixed;
+      bottom: 10px;
+      right: 10px;
+      font-size: 0.8em;
+      color: var(--text-color);
+      opacity: 0.7;
+    }
+
+    .attribution a {
+      color: var(--text-color);
+      text-decoration: none;
+    }
+
+    .attribution a:hover {
+      text-decoration: underline;
+    }
   </style>
 </head>
 <body>
@@ -170,6 +188,10 @@
 
     <div id="status" class="status"></div>
     <div id="error" class="error"></div>
+  </div>
+
+  <div class="attribution">
+    Powered by <a href="https://openai.com" target="_blank" rel="noopener noreferrer">OpenAI</a>
   </div>
 
   <script>
