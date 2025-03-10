@@ -1,0 +1,136 @@
+Interpify Server Updates
+=====================
+
+1. Add to .env:
+```
+APP_SECRET=<generate-32-byte-hex>  # Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+MOBILE_INITIAL_KEY=interpify-mobile-client
+ALLOWED_ORIGINS=https://interpify.nerdvoid.com
+```
+
+2. Add to package.json:
+```json
+{
+  "dependencies": {
+    "crypto": "^1.0.1",
+    "cors": "^2.8.5"
+  }
+}
+```
+
+3. Add to server.js (after existing imports):
+```javascript
+import crypto from 'crypto';
+import cors from 'cors';
+
+// Constants
+const APP_SECRET = process.env.APP_SECRET;
+const MOBILE_INITIAL_KEY = process.env.MOBILE_INITIAL_KEY;
+const verifiedOrigins = new Set(process.env.ALLOWED_ORIGINS.split(','));
+const usedNonces = new Map();
+
+// Nonce cleanup (add after constants)
+setInterval(() => {
+  const now = Date.now();
+  for (const [nonce, timestamp] of usedNonces.entries()) {
+    if (now - timestamp > 24 * 60 * 60 * 1000) usedNonces.delete(nonce);
+  }
+}, 60 * 60 * 1000);
+
+// Add verification endpoint (before socket.io setup)
+app.post('/verify-origin', (req, res) => {
+  if (req.body.clientType === 'mobile-app') {
+    const challenge = req.body;
+    
+    // Check nonce
+    if (usedNonces.has(challenge.nonce)) {
+      return res.status(403).json({ error: 'Nonce already used' });
+    }
+
+    // Verify client
+    const expectedHash = crypto.createHash('sha256')
+      .update(`${challenge.deviceId}:${challenge.timestamp}:${challenge.nonce}:${challenge.bundleId}:${MOBILE_INITIAL_KEY}`)
+      .digest('hex');
+
+    if (challenge.verificationHash !== expectedHash) {
+      return res.status(403).json({ error: 'Invalid verification' });
+    }
+
+    // Store nonce
+    usedNonces.set(challenge.nonce, Date.now());
+
+    // Generate app key
+    const serverChallenge = crypto.randomBytes(32).toString('hex');
+    const serverVerification = crypto.createHash('sha256')
+      .update(`${serverChallenge}:${challenge.verificationHash}`)
+      .digest('hex');
+    const appKey = crypto.createHash('sha256')
+      .update(APP_SECRET)
+      .digest('hex')
+      .substring(0, 32);
+
+    return res.json({
+      success: true,
+      appKey,
+      serverChallenge,
+      serverVerification
+    });
+  }
+
+  // Handle web client verification
+  const { timestamp, signature, origin } = req.headers;
+  if (!timestamp || !signature || !origin) {
+    return res.status(400).json({ error: 'Missing headers' });
+  }
+
+  const expectedSignature = crypto.createHmac('sha256', APP_SECRET)
+    .update(`${timestamp}:${origin}`)
+    .digest('hex');
+
+  if (crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+    verifiedOrigins.add(origin);
+    res.json({ success: true });
+  } else {
+    res.status(403).json({ error: 'Invalid signature' });
+  }
+});
+
+// Update CORS config (replace existing cors config)
+const corsConfig = {
+  origin: (origin, callback) => {
+    if (!origin || verifiedOrigins.has(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Origin not allowed'));
+    }
+  },
+  methods: ["GET", "POST"],
+  credentials: true,
+  allowedHeaders: [
+    "X-Requested-With",
+    "Content-Type",
+    "X-Interpify-Timestamp",
+    "X-Interpify-Signature",
+    "X-Interpify-Device-Id",
+    "X-Interpify-Nonce",
+    "X-Interpify-Bundle-Id"
+  ]
+};
+
+app.use(cors(corsConfig));
+```
+
+4. Update socket.io config:
+```javascript
+const io = new Server(server, {
+  cors: corsConfig,
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+  transports: ['websocket', 'polling'],
+  maxHttpBufferSize: 10e6,
+  connectTimeout: 45000
+});
+``` 

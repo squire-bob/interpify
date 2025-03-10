@@ -31,6 +31,8 @@ import ffmpeg from 'fluent-ffmpeg';
 import rateLimit from 'express-rate-limit';
 import { cleanupOldFiles } from './cleanup-temp.js';
 import { exec } from 'child_process';
+import crypto from 'crypto';
+import cors from 'cors';
 
 // Define __dirname in ES Modules
 const __filename = fileURLToPath(import.meta.url);
@@ -41,55 +43,117 @@ const MAX_AUDIO_DURATION = 60; // seconds
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const TEMP_DIR = path.join(__dirname, 'temp');
 
+// Interpify app verification
+const APP_SECRET = process.env.APP_SECRET;
+const MOBILE_INITIAL_KEY = process.env.MOBILE_INITIAL_KEY;
+const verifiedOrigins = new Set(process.env.ALLOWED_ORIGINS.split(','));
+const usedNonces = new Map();
+
+// Nonce cleanup for mobile verification
+setInterval(() => {
+  const now = Date.now();
+  for (const [nonce, timestamp] of usedNonces.entries()) {
+    if (now - timestamp > 24 * 60 * 60 * 1000) usedNonces.delete(nonce);
+  }
+}, 60 * 60 * 1000);
+
+// Function to verify Interpify client signature
+const verifyInterpifyClient = (timestamp, signature, origin) => {
+  const maxAge = 5 * 60 * 1000; // 5 minutes
+  const now = Date.now();
+  
+  // Check if timestamp is within acceptable range
+  if (now - parseInt(timestamp) > maxAge) {
+    return false;
+  }
+  
+  // Verify signature
+  const expectedSignature = crypto
+    .createHmac('sha256', APP_SECRET)
+    .update(`${timestamp}:${origin}`)
+    .digest('hex');
+    
+  return crypto.timingSafeEqual(
+    Buffer.from(signature),
+    Buffer.from(expectedSignature)
+  );
+};
+
 // Initialize OpenAI with your API key
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: "https://interpify.nerdvoid.com",
-    methods: ["GET", "POST"]
+
+// Combined CORS configuration for both web and mobile clients
+const corsConfig = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps, curl, etc)
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    
+    // Check if the origin is in our allowed list
+    if (verifiedOrigins.has(origin)) {
+      callback(null, true);
+    } else {
+      console.log(`CORS blocked origin: ${origin}, Allowed origins: ${Array.from(verifiedOrigins).join(', ')}`);
+      callback(new Error('Origin not allowed by CORS'));
+    }
   },
-  pingTimeout: 60000,
-  pingInterval: 25000,
+  methods: ["GET", "POST"],
+  credentials: true,
+  allowedHeaders: [
+    "X-Requested-With",
+    "content-type",
+    "CF-Connecting-IP",
+    "CF-Ray",
+    "CF-Visitor",
+    "X-Interpify-Timestamp",
+    "X-Interpify-Signature",
+    "X-Interpify-Device-Id",
+    "X-Interpify-Nonce",
+    "X-Interpify-Bundle-Id"
+  ]
+};
+
+// Socket.IO configuration with all settings preserved
+const io = new Server(server, {
+  cors: corsConfig,
+  // Socket.IO settings for better stability
+  pingTimeout: 45000,         // Increased from 30000 to 45000
+  pingInterval: 20000,         // Decreased from 25000 to 20000 for more frequent pings
   reconnection: true,
-  reconnectionAttempts: 5,
+  reconnectionAttempts: 15,    // Increased from 10 to 15
   reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,  // Maximum reconnection delay
   // Additional Socket.IO settings for better performance with Cloudflare
   transports: ['websocket', 'polling'],
   allowUpgrades: true,
-  upgradeTimeout: 10000,
-  // Cloudflare has a 100s timeout, so keep alive interval should be less than that
-  pingInterval: 20000,
-  pingTimeout: 5000,
+  upgradeTimeout: 15000,       // Increased from 10000 to 15000
   // Cookie settings
   cookie: {
     name: 'io',
     path: '/',
     httpOnly: true,
-    sameSite: 'strict'
+    sameSite: 'lax'            // 'lax' for better cross-site behavior
   },
   // Security settings
-  maxHttpBufferSize: 10e6, // 10MB to match MAX_FILE_SIZE
-  connectTimeout: 45000,
-  // Additional headers for Cloudflare
+  maxHttpBufferSize: 10e6,     // 10MB to match MAX_FILE_SIZE
+  connectTimeout: 60000,       // Increased from 45000 to 60000
+  // Additional compatibility
   allowEIO3: true,
-  cors: {
-    origin: "https://interpify.nerdvoid.com",
-    methods: ["GET", "POST"],
-    credentials: true,
-    headers: [
-      "X-Requested-With",
-      "content-type",
-      "CF-Connecting-IP",
-      "CF-Ray",
-      "CF-Visitor"
-    ]
+  // Additional stability settings
+  perMessageDeflate: {
+    threshold: 1024            // Only compress messages larger than 1KB
   }
 });
 
 app.use(express.json());
+app.use(cors(corsConfig));
+
+// Serve static files
 app.use(express.static(path.join(__dirname)));
 
 // Rate limiting middleware
@@ -98,7 +162,71 @@ const limiter = rateLimit({
   max: 100 // limit each IP to 100 requests per windowMs
 });
 
-app.use(limiter);
+// Apply rate limiting to API routes only, not static files
+app.use('/verify-origin', limiter);
+app.use('/create-room', limiter);
+
+// Add mobile verification endpoint before socket.io setup
+app.post('/verify-origin', (req, res) => {
+  // Handle mobile app verification
+  if (req.body.clientType === 'mobile-app' && MOBILE_INITIAL_KEY) {
+    const challenge = req.body;
+    
+    // Check nonce
+    if (usedNonces.has(challenge.nonce)) {
+      return res.status(403).json({ error: 'Nonce already used' });
+    }
+
+    // Verify client
+    const expectedHash = crypto.createHash('sha256')
+      .update(`${challenge.deviceId}:${challenge.timestamp}:${challenge.nonce}:${challenge.bundleId}:${MOBILE_INITIAL_KEY}`)
+      .digest('hex');
+
+    if (challenge.verificationHash !== expectedHash) {
+      return res.status(403).json({ error: 'Invalid verification' });
+    }
+
+    // Store nonce
+    usedNonces.set(challenge.nonce, Date.now());
+
+    // Generate app key
+    const serverChallenge = crypto.randomBytes(32).toString('hex');
+    const serverVerification = crypto.createHash('sha256')
+      .update(`${serverChallenge}:${challenge.verificationHash}`)
+      .digest('hex');
+    const appKey = crypto.createHash('sha256')
+      .update(APP_SECRET)
+      .digest('hex')
+      .substring(0, 32);
+
+    return res.json({
+      success: true,
+      appKey,
+      serverChallenge,
+      serverVerification
+    });
+  }
+
+  // Handle web client verification (existing logic)
+  const timestamp = req.headers['x-interpify-timestamp'];
+  const signature = req.headers['x-interpify-signature'];
+  const origin = req.headers.origin;
+
+  if (!timestamp || !signature || !origin) {
+    return res.status(400).json({ error: 'Missing required headers' });
+  }
+
+  try {
+    if (verifyInterpifyClient(timestamp, signature, origin)) {
+      verifiedOrigins.add(origin);
+      res.json({ success: true, message: 'Origin verified and added' });
+    } else {
+      res.status(403).json({ error: 'Invalid signature' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: 'Verification failed' });
+  }
+});
 
 // Check ffmpeg installation
 function checkFfmpeg() {
@@ -118,6 +246,17 @@ function checkFfmpeg() {
 // Initialize server
 async function initializeServer() {
   try {
+    // Check required environment variables
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY environment variable is required');
+    }
+    if (!process.env.APP_SECRET) {
+      throw new Error('APP_SECRET environment variable is required');
+    }
+    if (!process.env.ALLOWED_ORIGINS) {
+      throw new Error('ALLOWED_ORIGINS environment variable is required');
+    }
+
     // Check ffmpeg installation
     await checkFfmpeg();
 
@@ -153,10 +292,25 @@ app.get('/', (req, res) => {
 // Create room endpoint
 app.post('/create-room', (req, res) => {
   // Generate a room ID that starts with a number (1-9) followed by 5 alphanumeric characters
-  const firstNumber = Math.floor(Math.random() * 9) + 1; // 1-9
-  const remainingChars = Math.random().toString(36).substring(2, 7); // 5 chars
-  const roomId = `${firstNumber}${remainingChars}`;
+  let roomId;
+  let attempts = 0;
+  const maxAttempts = 5;
+  
+  // Ensure the room ID is unique
+  do {
+    const firstNumber = Math.floor(Math.random() * 9) + 1; // 1-9
+    const remainingChars = Math.random().toString(36).substring(2, 7); // 5 chars
+    roomId = `${firstNumber}${remainingChars}`;
+    attempts++;
+  } while (rooms[roomId] && attempts < maxAttempts);
+  
+  if (attempts >= maxAttempts && rooms[roomId]) {
+    console.error('Failed to create a unique room ID after multiple attempts');
+    return res.status(500).json({ error: 'Failed to create a unique room' });
+  }
+  
   rooms[roomId] = { users: [] };
+  console.log(`Room created via API: ${roomId}, Total rooms: ${Object.keys(rooms).length}`);
   res.json({ roomId });
 });
 
@@ -339,13 +493,6 @@ io.on('connection', (socket) => {
     socket.emit('errorMessage', { message: 'Connection error occurred' });
   });
 
-  socket.on('disconnect', (reason) => {
-    console.log(`Client disconnected. Reason: ${reason}`);
-    if (reason === 'io server disconnect') {
-      socket.connect();
-    }
-  });
-
   socket.on('reconnect_attempt', () => {
     reconnectAttempts++;
     if (reconnectAttempts > maxReconnectAttempts) {
@@ -360,42 +507,122 @@ io.on('connection', (socket) => {
     socket.emit('status', { message: 'Reconnected successfully' });
   });
 
+  // Handle disconnection with both reconnection and room cleanup
+  socket.on('disconnect', (reason) => {
+    console.log(`Client disconnected. Reason: ${reason}, Socket ID: ${socket.id}`);
+    
+    // Handle server-initiated disconnects
+    if (reason === 'io server disconnect') {
+      socket.connect();
+    }
+    
+    // Clean up rooms when client disconnects
+    // Make a copy of the room keys to avoid modification during iteration
+    const roomKeys = Object.keys(rooms);
+    for (const roomId of roomKeys) {
+      if (rooms[roomId] && rooms[roomId].users.some(user => user.socketId === socket.id)) {
+        console.log(`Cleaning up user ${socket.id} from room ${roomId}`);
+        leaveRoom(socket, roomId);
+      }
+    }
+  });
+
   socket.on('createRoom', (callback) => {
     // Generate a room ID that starts with a number (1-9) followed by 5 alphanumeric characters
-    const firstNumber = Math.floor(Math.random() * 9) + 1; // 1-9
-    const remainingChars = Math.random().toString(36).substring(2, 7); // 5 chars
-    const roomId = `${firstNumber}${remainingChars}`;
+    let roomId;
+    let attempts = 0;
+    const maxAttempts = 5;
+    
+    // Ensure the room ID is unique
+    do {
+      const firstNumber = Math.floor(Math.random() * 9) + 1; // 1-9
+      const remainingChars = Math.random().toString(36).substring(2, 7); // 5 chars
+      roomId = `${firstNumber}${remainingChars}`;
+      attempts++;
+    } while (rooms[roomId] && attempts < maxAttempts);
+    
+    if (attempts >= maxAttempts && rooms[roomId]) {
+      console.error('Failed to create a unique room ID after multiple attempts');
+      callback(null);
+      return;
+    }
+    
     rooms[roomId] = { users: [] };
-    console.log(`Room created: ${roomId}`);
+    console.log(`Room created: ${roomId}, Total rooms: ${Object.keys(rooms).length}`);
     callback(roomId);
   });
 
   socket.on('joinRoom', ({ roomId, username, language }, callback) => {
+    console.log(`Join room attempt: ${roomId}, Available rooms: ${Object.keys(rooms).join(', ')}`);
     if (rooms[roomId]) {
-      const user = { 
-        id: socket.id, 
-        username, 
-        language,
-        socketId: socket.id
-      };
+      // Check if user with this socket ID already exists in the room
+      const existingUserIndex = rooms[roomId].users.findIndex(u => u.socketId === socket.id);
       
-      // Add user to room
-      rooms[roomId].users.push(user);
+      if (existingUserIndex !== -1) {
+        // User already exists in the room, update their info
+        console.log(`User with socket ID ${socket.id} already exists in room ${roomId}, updating info`);
+        
+        // Get the existing user to check if language changed
+        const existingUser = rooms[roomId].users[existingUserIndex];
+        const oldLanguage = existingUser.language;
+        
+        // Update user info
+        rooms[roomId].users[existingUserIndex] = { 
+          id: socket.id, 
+          username, 
+          language,
+          socketId: socket.id
+        };
+        
+        // If language changed, update language groups
+        if (oldLanguage !== language && roomLanguageGroups[roomId]) {
+          // Remove from old language group
+          const oldLangGroup = roomLanguageGroups[roomId].get(oldLanguage);
+          if (oldLangGroup) {
+            const index = oldLangGroup.findIndex(u => u.socketId === socket.id);
+            if (index !== -1) {
+              oldLangGroup.splice(index, 1);
+            }
+            if (oldLangGroup.length === 0) {
+              roomLanguageGroups[roomId].delete(oldLanguage);
+            }
+          }
+          
+          // Add to new language group
+          const newLangGroup = roomLanguageGroups[roomId].get(language) || [];
+          newLangGroup.push(rooms[roomId].users[existingUserIndex]);
+          roomLanguageGroups[roomId].set(language, newLangGroup);
+        }
+      } else {
+        // New user, add to room
+        const user = { 
+          id: socket.id, 
+          username, 
+          language,
+          socketId: socket.id
+        };
+        
+        // Add user to room
+        rooms[roomId].users.push(user);
+        
+        // Update language groups for the room
+        if (!roomLanguageGroups[roomId]) {
+          roomLanguageGroups[roomId] = new Map();
+        }
+        
+        // Add user to their language group
+        const langGroup = roomLanguageGroups[roomId].get(language) || [];
+        langGroup.push(user);
+        roomLanguageGroups[roomId].set(language, langGroup);
+      }
+      
+      // Join the socket to the room
       socket.join(roomId);
       
       // Store room ID in socket for easy reference
       socket.roomId = roomId;
       
-      // Update language groups for the room
-      if (!roomLanguageGroups[roomId]) {
-        roomLanguageGroups[roomId] = new Map();
-      }
-      
-      // Add user to their language group
-      const langGroup = roomLanguageGroups[roomId].get(language) || [];
-      langGroup.push(user);
-      roomLanguageGroups[roomId].set(language, langGroup);
-      
+      // Update user list for all clients in the room
       io.to(roomId).emit(
         'updateUserList',
         rooms[roomId].users.map((user) => ({
@@ -409,8 +636,9 @@ io.on('connection', (socket) => {
         `User ${username} joined room ${roomId} with language ${language}`
       );
     } else {
+      console.log(`Failed to join room ${roomId}: Room not found. Available rooms: ${Object.keys(rooms).join(', ')}`);
       callback(false);
-      console.log(`Failed to join room ${roomId}: Room does not exist.`);
+      socket.emit('errorMessage', { message: 'Room not found or invalid. Please check the room ID and try again.' });
     }
   });
 
@@ -454,6 +682,27 @@ io.on('connection', (socket) => {
 
     if (!isSpeaking && audioData.length > 0) {
       processAudioData(roomId, socket, audioData);
+    }
+  });
+
+  // Add heartbeat handler to respond to client pings
+  socket.on('heartbeat', (clientTime, callback) => {
+    // Log heartbeats at debug level
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`Heartbeat received from ${socket.id}, client time: ${clientTime}`);
+    }
+    
+    // Check if the socket is still in a room
+    const socketRooms = Array.from(socket.rooms).filter(room => room !== socket.id);
+    const isInRoom = socketRooms.length > 0;
+    
+    // Respond with the client's timestamp and server status to calculate round-trip time
+    if (typeof callback === 'function') {
+      callback(clientTime, { 
+        serverTime: Date.now(),
+        isInRoom,
+        rooms: socketRooms
+      });
     }
   });
 
@@ -697,49 +946,49 @@ Provide ONLY the translation without any explanations or notes.`,
     });
   }
 
-  socket.on('disconnect', () => {
-    for (const roomId in rooms) {
-      leaveRoom(socket, roomId);
-    }
-  });
-
   function leaveRoom(socket, roomId) {
-    if (rooms[roomId]) {
-      const user = rooms[roomId].users.find(u => u.socketId === socket.id);
-      if (user) {
-        // Remove user from language groups
-        if (roomLanguageGroups[roomId]) {
-          const langGroup = roomLanguageGroups[roomId].get(user.language);
-          if (langGroup) {
-            const index = langGroup.findIndex(u => u.socketId === socket.id);
-            if (index !== -1) {
-              langGroup.splice(index, 1);
-            }
-            if (langGroup.length === 0) {
-              roomLanguageGroups[roomId].delete(user.language);
-            }
-          }
+    if (!rooms[roomId]) {
+      return; // Room doesn't exist, nothing to do
+    }
+    
+    const user = rooms[roomId].users.find(u => u.socketId === socket.id);
+    if (!user) {
+      return; // User not in this room, nothing to do
+    }
+    
+    // Remove user from language groups
+    if (roomLanguageGroups[roomId]) {
+      const langGroup = roomLanguageGroups[roomId].get(user.language);
+      if (langGroup) {
+        const index = langGroup.findIndex(u => u.socketId === socket.id);
+        if (index !== -1) {
+          langGroup.splice(index, 1);
+        }
+        if (langGroup.length === 0) {
+          roomLanguageGroups[roomId].delete(user.language);
         }
       }
+    }
 
-      // Remove user from room
-      rooms[roomId].users = rooms[roomId].users.filter(
-        (user) => user.socketId !== socket.id
+    // Remove user from room
+    rooms[roomId].users = rooms[roomId].users.filter(
+      (u) => u.socketId !== socket.id
+    );
+
+    // If room is empty, delete it immediately
+    if (rooms[roomId].users.length === 0) {
+      delete rooms[roomId];
+      delete roomLanguageGroups[roomId];
+      console.log(`Room ${roomId} deleted due to no active users.`);
+    } else {
+      // Otherwise, update the user list for remaining users
+      io.to(roomId).emit(
+        'updateUserList',
+        rooms[roomId].users.map((u) => ({
+          username: u.username,
+          language: u.language
+        }))
       );
-
-      if (rooms[roomId].users.length === 0) {
-        delete rooms[roomId];
-        delete roomLanguageGroups[roomId];
-        console.log(`Room ${roomId} deleted due to no active users.`);
-      } else {
-        io.to(roomId).emit(
-          'updateUserList',
-          rooms[roomId].users.map((user) => ({
-            username: user.username,
-            language: user.language
-          }))
-        );
-      }
     }
   }
 });

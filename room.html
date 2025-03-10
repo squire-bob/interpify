@@ -709,6 +709,11 @@
     const maxReconnectAttempts = 5;
     let isProcessingAudio = false;
 
+    // Add heartbeat mechanism to detect connection issues
+    let heartbeatInterval;
+    let missedHeartbeats = 0;
+    const MAX_MISSED_HEARTBEATS = 3;
+
     // Room elements
     const joinBtn = document.getElementById('joinBtn');
     const talkBtn = document.getElementById('talkBtn');
@@ -769,18 +774,22 @@
     function initializeSocket() {
       socket = io({
         reconnection: true,
-        reconnectionAttempts: maxReconnectAttempts,
+        reconnectionAttempts: 15,        // Increased from 10 to 15
         reconnectionDelay: 1000,
-        timeout: 10000,
+        reconnectionDelayMax: 5000,      // Maximum reconnection delay
+        timeout: 30000,                  // Increased from 20000 to 30000
         // Cloudflare-specific settings
         transports: ['websocket', 'polling'],
         upgrade: true,
         rememberUpgrade: true,
-        secure: true,
-        rejectUnauthorized: true,
+        forceNew: false,                 // Don't force a new connection
         // Adjust timeouts to match server
-        pingInterval: 20000,
-        pingTimeout: 5000
+        pingInterval: 20000,             // Decreased from 25000 to 20000 for more frequent pings
+        pingTimeout: 45000,              // Increased from 30000 to 45000
+        // Additional stability settings
+        autoConnect: true,               // Automatically connect on instantiation
+        rejectUnauthorized: null,        // Let the browser handle SSL validation
+        withCredentials: true            // Send cookies with cross-origin requests
       });
 
       setupSocketListeners();
@@ -788,33 +797,66 @@
 
     function setupSocketListeners() {
       socket.on('connect_error', (error) => {
-        errorDiv.textContent = 'Connection error. Please try again.';
+        errorDiv.textContent = 'Connection error. Attempting to reconnect...';
         console.error('Socket connection error:', error);
       });
 
       socket.on('disconnect', (reason) => {
-        statusDiv.textContent = 'Disconnected from server. Attempting to reconnect...';
+        console.log('Disconnected from server. Reason:', reason);
+        
+        // Stop heartbeat on disconnect
+        stopHeartbeat();
+        
         if (reason === 'io server disconnect') {
+          // The server has forcefully disconnected the socket
+          statusDiv.textContent = 'Disconnected by server. Attempting to reconnect...';
           socket.connect();
+        } else if (reason === 'transport close') {
+          // Transport closed (likely network issue)
+          statusDiv.textContent = 'Connection lost. Attempting to reconnect automatically...';
+        } else if (reason === 'ping timeout') {
+          // Ping timeout (server didn't respond to ping)
+          statusDiv.textContent = 'Server not responding. Attempting to reconnect...';
+        } else {
+          // Other disconnect reasons
+          statusDiv.textContent = `Disconnected: ${reason}. Attempting to reconnect...`;
         }
+        
+        // Disable talk button during disconnection
+        talkBtn.disabled = true;
       });
 
-      socket.on('reconnect_attempt', () => {
-        reconnectAttempts++;
-        statusDiv.textContent = `Reconnection attempt ${reconnectAttempts}/${maxReconnectAttempts}...`;
+      socket.on('connect', () => {
+        statusDiv.textContent = 'Connected to server';
+        errorDiv.textContent = '';
+        
+        // If we were previously in a room, try to rejoin
+        if (roomId && document.getElementById('username').value) {
+          joinRoom();
+        }
+        
+        // Start heartbeat when socket connects
+        startHeartbeat();
+      });
+
+      socket.on('reconnect_attempt', (attemptNumber) => {
+        statusDiv.textContent = `Reconnection attempt ${attemptNumber}...`;
       });
 
       socket.on('reconnect', () => {
         reconnectAttempts = 0;
         statusDiv.textContent = 'Reconnected successfully';
-        // Rejoin room after reconnection
-        if (roomId) {
+        errorDiv.textContent = '';
+        
+        // Rejoin room after reconnection, but only if not already joining
+        if (roomId && document.getElementById('username').value && !socket.isJoining) {
           joinRoom();
         }
       });
 
       socket.on('reconnect_failed', () => {
-        errorDiv.textContent = 'Failed to reconnect. Please refresh the page.';
+        errorDiv.textContent = 'Failed to reconnect after multiple attempts. Please refresh the page.';
+        statusDiv.textContent = '';
       });
 
       socket.on('userTranscribedText', ({ username, text }) => {
@@ -918,7 +960,17 @@
         });
       }
 
+      // Add a flag to track if we're already joining a room to prevent duplicate joins
+      if (socket.isJoining) {
+        console.log('Already joining room, ignoring duplicate join request');
+        return;
+      }
+      
+      socket.isJoining = true;
+      
       socket.emit('joinRoom', { roomId, username, language }, async (success) => {
+        socket.isJoining = false;
+        
         if (success) {
           try {
             await audioContext.resume();
@@ -1291,6 +1343,92 @@
       helpContent.style.display = isCurrentlyHidden ? 'block' : 'none';
       toggleHelpBtn.textContent = isCurrentlyHidden ? 'Hide Help' : 'Show Help';
     });
+
+    function startHeartbeat() {
+      // Clear any existing heartbeat
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+      }
+      
+      missedHeartbeats = 0;
+      
+      // Send a heartbeat every 10 seconds (more frequent than before)
+      heartbeatInterval = setInterval(() => {
+        if (socket && socket.connected) {
+          // Send a ping and expect a pong
+          const startTime = Date.now();
+          
+          // Add timeout for the callback to handle cases where the callback never fires
+          const heartbeatTimeout = setTimeout(() => {
+            missedHeartbeats++;
+            console.warn(`Heartbeat callback timeout. Missed heartbeats: ${missedHeartbeats}`);
+            
+            if (missedHeartbeats >= MAX_MISSED_HEARTBEATS) {
+              handleMissedHeartbeats();
+            }
+          }, 5000); // 5 second timeout for the callback
+          
+          socket.emit('heartbeat', startTime, (pongTime, serverStatus) => {
+            // Clear the timeout since we got a response
+            clearTimeout(heartbeatTimeout);
+            
+            // Reset missed heartbeats when we get a response
+            missedHeartbeats = 0;
+            
+            // Calculate round-trip time for debugging
+            const rtt = Date.now() - pongTime;
+            console.log(`Heartbeat RTT: ${rtt}ms`);
+            
+            // If RTT is very high, log a warning
+            if (rtt > 1000) {
+              console.warn(`High latency detected: ${rtt}ms`);
+            }
+            
+            // Check if we're still in the room according to the server
+            if (serverStatus && roomId) {
+              if (!serverStatus.isInRoom && !socket.isJoining) {
+                console.warn('Server reports we are not in a room, but we should be. Attempting to rejoin.');
+                joinRoom();
+              } else if (serverStatus.rooms && !serverStatus.rooms.includes(roomId) && !socket.isJoining) {
+                console.warn(`Server reports we are in rooms ${serverStatus.rooms.join(', ')} but not in expected room ${roomId}. Attempting to rejoin.`);
+                joinRoom();
+              }
+            }
+          });
+        } else if (socket && !socket.isJoining) {
+          // If socket exists but is not connected, try to reconnect
+          console.warn('Socket exists but is not connected during heartbeat check');
+          socket.connect();
+        }
+      }, 10000); // Reduced from 15000 to 10000 ms
+    }
+    
+    function handleMissedHeartbeats() {
+      console.warn(`Missed ${missedHeartbeats} heartbeats. Connection may be unstable.`);
+      statusDiv.textContent = 'Connection appears unstable. Attempting to reconnect...';
+      
+      // Force a reconnection
+      if (socket && !socket.isJoining) {
+        try {
+          socket.disconnect();
+          setTimeout(() => {
+            socket.connect();
+          }, 1000); // Wait 1 second before reconnecting
+        } catch (error) {
+          console.error('Error during reconnection:', error);
+          // If reconnection fails, try to reinitialize the socket
+          setTimeout(initializeSocket, 2000);
+        }
+      }
+    }
+
+    function stopHeartbeat() {
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+      }
+      missedHeartbeats = 0;
+    }
   </script>
 </body>
 </html>
